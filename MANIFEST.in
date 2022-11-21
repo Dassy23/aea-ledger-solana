@@ -1,9 +1,4 @@
-include README.md LICENSE HISTORY.md AUTHORS.md SECURITY.md CODE_OF_CONDUCT.md Pipfile mkdocs.yml tox.ini pytest.ini strategy.ini
+include README.md LICENSE HISTORY.md
 
-recursive-include aea *.json *.yaml *.proto *.ico *png *.html *.js *.css *.md *.cfg json1.dll
-recursive-include docs *
-recursive-include examples *
-recursive-include packages *
-recursive-include plugins *
-recursive-include scripts *
+recursive-include aea_ledger_ethereum
 recursive-include tests *
