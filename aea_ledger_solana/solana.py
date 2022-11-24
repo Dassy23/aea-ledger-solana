@@ -42,19 +42,24 @@ from aea.helpers.io import open_file
 
 from solana.publickey import PublicKey
 from solana.rpc.api import Client
+from solana.rpc import types
 from solana.keypair import Keypair
+from solders.signature import Signature
+
 from nacl.signing import VerifyKey
 from pathlib import Path
 import asyncio
 import json
-from solana.blockhash import Blockhash
-from solana.publickey import PublicKey
+from solana.blockhash import BlockhashCache, Blockhash
+from solana.transaction import TransactionInstruction, Transaction
 from anchorpy import Program, Provider
-from anchorpy.idl import Idl, _decode_idl_account, _idl_address
+from anchorpy.idl import  _decode_idl_account, _idl_address
 from anchorpy.coder.accounts import ACCOUNT_DISCRIMINATOR_SIZE
-
 from solana.system_program import TransferParams, transfer
 from solana.transaction import Transaction
+from solana.system_program import create_account,SYS_PROGRAM_ID
+from solana.system_program import CreateAccountParams
+
 from base64 import b64decode
 
 from lru import LRU
@@ -72,6 +77,7 @@ TESTNET_NAME = "testnet"
 DEFAULT_ADDRESS = "http://127.0.0.1:8899"
 DEFAULT_CHAIN_ID = "solana"
 DEFAULT_CURRENCY_DENOM = "lamports"
+RENT_EXEMPT_AMOUNT = 1000000
 _IDL = "idl"
 _BYTECODE = "bytecode"
 
@@ -159,7 +165,7 @@ class SolanaCrypto(Crypto[Keypair]):
 
         try:
             l = literal_eval(private_key)
-            key = Keypair.from_secret_key(l)
+            key = Keypair.from_secret_key(bytes(l))
         except KeyIsIncorrect as e:
 
             raise KeyIsIncorrect(
@@ -182,7 +188,27 @@ class SolanaCrypto(Crypto[Keypair]):
 
         return signed_msg
 
-    def sign_transaction(self, transaction: JSONLike, recent_blockhash: Blockhash) -> JSONLike:
+    def sign_transaction(self, transaction: JSONLike, recent_blockhash: Blockhash, signers: Optional[list]) -> JSONLike:
+        """
+        Sign a transaction in bytes string form.
+
+        :param transaction: the transaction to be signed
+        :param recent_blockhash: a recent blockhash
+        :return: signed transaction
+        """
+
+        keypair = Keypair.from_secret_key(bytes.fromhex(self.private_key))
+        signers = [Keypair.from_secret_key(bytes.fromhex(signer.private_key)) for signer in signers]
+        transaction.recent_blockhash = recent_blockhash
+        signers.append(keypair)
+        # transaction.sign([signers])
+        try:
+            transaction.sign(*signers)
+        except Exception as e:
+            print(e)
+        return transaction
+    
+    def sign_partial(self, transaction: JSONLike, recent_blockhash: Blockhash) -> JSONLike:
         """
         Sign a transaction in bytes string form.
 
@@ -193,7 +219,7 @@ class SolanaCrypto(Crypto[Keypair]):
 
         keypair = Keypair.from_secret_key(bytes.fromhex(self.private_key))
         transaction.recent_blockhash = recent_blockhash
-        transaction.sign(keypair)
+        transaction.sign_partial(keypair)
 
         return transaction
 
@@ -267,10 +293,9 @@ class SolanaApi(LedgerApi):
 
         :return: a blockhash
         """
-        result = self._api.get_recent_blockhash()
-        blockhash = result['result']['value']['blockhash']
+        result = BlockhashCache()
 
-        return Blockhash(blockhash)
+        return result
 
     def update_with_gas_estimate(self, transaction: JSONLike) -> JSONLike:
         """
@@ -295,7 +320,7 @@ class SolanaApi(LedgerApi):
     def _try_get_balance(self, address: Address, **_kwargs: Any) -> Optional[int]:
         """Get the balance of a given account."""
         response = self._api.get_balance(address)  # pylint: disable=no-member
-        return response['result']['value']
+        return response.value
 
     def get_state(
         self, callable_name: str, *args: Any, raise_on_try: bool = False, **kwargs: Any
@@ -395,7 +420,8 @@ class SolanaApi(LedgerApi):
         contract_interface = None
         if program_address is not None and rpc_api is not None:
             try:
-                base = PublicKey.find_program_address([], PublicKey(program_address))[0]
+                base = PublicKey.find_program_address(
+                    [], PublicKey(program_address))[0]
                 idl_address = PublicKey.create_with_seed(
                     base, "anchor:idl", PublicKey(program_address))
                 client = Client(endpoint=rpc_api)
@@ -403,9 +429,11 @@ class SolanaApi(LedgerApi):
 
                 account_info_val = account_info["result"]["value"]
                 idl_account = _decode_idl_account(
-                    b64decode(account_info_val["data"][0])[ACCOUNT_DISCRIMINATOR_SIZE:]
+                    b64decode(account_info_val["data"][0])[
+                        ACCOUNT_DISCRIMINATOR_SIZE:]
                 )
-                inflated_idl = _pako_inflate(bytes(idl_account["data"])).decode()
+                inflated_idl = _pako_inflate(
+                    bytes(idl_account["data"])).decode()
                 json_idl = json.loads(inflated_idl)
                 return json_idl
             except Exception as e:
@@ -456,8 +484,9 @@ class SolanaApi(LedgerApi):
         :return: True if the transaction has been settled, False o/w.
         """
         is_successful = False
-        if tx_receipt['result'] is not None:
-            is_successful = tx_receipt['result']['meta']['status'] == {'Ok': None}
+        if tx_receipt is not None:
+            is_successful = tx_receipt['meta']['status'] == {
+                'Ok': None}
         return is_successful
 
     @ staticmethod
@@ -479,7 +508,8 @@ class SolanaApi(LedgerApi):
         :param tx_receipt: the receipt of the transaction.
         :return: the contract address, if present
         """
-        contract_address = cast(Optional[str], tx_receipt.get("contractAddress", None))
+        contract_address = cast(
+            Optional[str], tx_receipt.get("contractAddress", None))
         return contract_address
 
     @ classmethod
@@ -503,16 +533,18 @@ class SolanaApi(LedgerApi):
         :return: return the hash in hex.
         """
 
-        result = self._api.get_recent_blockhash()
-        blockhash = result['result']['value']['blockhash']
-
-        return Blockhash(blockhash)
+        result = self._api.get_latest_blockhash()
+        blockhash_json = result.value.to_json()
+        blockhash = json.loads(blockhash_json)
+        hash = blockhash['blockhash']
+        return hash
 
     def get_transfer_transaction(  # pylint: disable=arguments-differ
         self,
         sender_address: Address,
         destination_address: Address,
         amount: int,
+        unfunded_account: bool,
         chain_id: Optional[int] = None,
         raise_on_try: bool = False,
         **kwargs: Any,
@@ -529,9 +561,29 @@ class SolanaApi(LedgerApi):
         :return: the transfer transaction
         """
         chain_id = chain_id if chain_id is not None else self._chain_id
-
-        txn = Transaction(fee_payer=PublicKey(sender_address)).add(transfer(TransferParams(
-            from_pubkey=PublicKey(sender_address), to_pubkey=PublicKey(destination_address), lamports=amount)))
+        
+        if unfunded_account:
+            destination_balance = self.get_balance(destination_address)
+            if destination_balance != 0:
+                raise Exception("Account is already funded")
+            
+        if unfunded_account and amount > RENT_EXEMPT_AMOUNT:
+            params = CreateAccountParams(
+                from_pubkey=PublicKey(sender_address),
+                new_account_pubkey=PublicKey(destination_address),
+                lamports=RENT_EXEMPT_AMOUNT,
+                space=1,
+                program_id=SYS_PROGRAM_ID
+                )
+            createAccountInstruction = create_account(params)
+            txn = Transaction(fee_payer=sender_address).add(createAccountInstruction).add(transfer(TransferParams(
+                from_pubkey=PublicKey(sender_address), to_pubkey=PublicKey(destination_address), lamports=amount-RENT_EXEMPT_AMOUNT)))
+            
+        elif unfunded_account and amount < RENT_EXEMPT_AMOUNT:
+            raise Exception("Not enough funds sent to initialize account")
+        else:   
+            txn = Transaction(fee_payer=sender_address).add(transfer(TransferParams(
+                from_pubkey=PublicKey(sender_address), to_pubkey=PublicKey(destination_address), lamports=amount)))
 
         return txn
 
@@ -548,7 +600,8 @@ class SolanaApi(LedgerApi):
         tx_digest = self._try_send_signed_transaction(
             tx_signed, raise_on_try=raise_on_try
         )
-        return tx_digest['result']
+        tx = json.loads(tx_digest)
+        return tx['result']
 
     @ try_decorator("Unable to send transaction: {}", logger_method="warning")
     def _try_send_signed_transaction(
@@ -562,9 +615,14 @@ class SolanaApi(LedgerApi):
             `raise_on_try`: bool flag specifying whether the method will raise or log on error (used by `try_decorator`)
         :return: tx_digest, if present
         """
-        txn_resp = self._api.send_raw_transaction(tx_signed.serialize())
+        try:
+            # txOpts = types.TxOpts(skip_preflight=True)
 
-        return txn_resp
+            txn_resp = self._api.send_raw_transaction(
+                tx_signed.serialize())
+        except Exception as e:
+            raise Exception(e)
+        return txn_resp.to_json()
 
     def get_transaction_receipt(
         self, tx_digest: str, raise_on_try: bool = False
@@ -597,8 +655,13 @@ class SolanaApi(LedgerApi):
             `raise_on_try`: bool flag specifying whether the method will raise or log on error (used by `try_decorator`)
         :return: the tx receipt, if present
         """
-        tx_receipt = self._api.get_transaction(tx_digest)  # pylint: disable=no-member
-        return tx_receipt
+        try:
+            tx_receipt = self._api.get_transaction(
+                Signature.from_string(tx_digest))  # pylint: disable=no-member
+        except Exception as e:
+            print(e)
+        tx = json.loads(tx_receipt.to_json())
+        return tx["result"]
 
     def get_transaction(
         self,
@@ -627,9 +690,12 @@ class SolanaApi(LedgerApi):
             `raise_on_try`: bool flag specifying whether the method will raise or log on error (used by `try_decorator`)
         :return: the tx, if found
         """
-        tx = self._api.get_confirmed_transaction(tx_digest)
+        try:
+            tx = self._api.get_transaction(Signature.from_string(tx_digest))
+        except Exception as e:
+            print(e)
         # pylint: disable=no-member
-        return tx
+        return json.loads(tx.value.to_json())
 
     # @ try_decorator(
     #     "Error when attempting getting tx revert reason: {}", logger_method="debug"
@@ -714,7 +780,8 @@ class SolanaApi(LedgerApi):
         gas_price: Optional[str] = kwargs.pop("gas_price", None)
 
         # the gas price strategy to be used.
-        gas_price_strategy: Optional[str] = kwargs.pop("gas_price_strategy", None)
+        gas_price_strategy: Optional[str] = kwargs.pop(
+            "gas_price_strategy", None)
 
         # extra config for gas price strategy.
         gas_price_strategy_extra_config: Optional[Dict] = kwargs.pop(
@@ -763,11 +830,13 @@ class SolanaApi(LedgerApi):
 
             transaction.update(gas_pricing)
 
-        transaction = instance.constructor(**kwargs).buildTransaction(transaction)
+        transaction = instance.constructor(
+            **kwargs).buildTransaction(transaction)
 
         if transaction is None:
             return None  # pragma: nocover
-        transaction.pop("to", None)  # only 'from' address, don't insert 'to' address!
+        # only 'from' address, don't insert 'to' address!
+        transaction.pop("to", None)
         transaction.update({"from": _deployer_address})
         if gas is not None:
             transaction.update({"gas": gas})
@@ -904,7 +973,7 @@ class SolanaFaucetApi(FaucetApi):
     identifier = _SOLANA
     testnet_name = TESTNET_NAME
 
-    def get_wealth(self, address: Address, url: Optional[str] = None) -> None:
+    def get_wealth(self, address: Address, amount:int, url: Optional[str] = None) -> None:
         """
         Get wealth from the faucet for the provided address.
 
@@ -912,14 +981,14 @@ class SolanaFaucetApi(FaucetApi):
         :param url: the url
         """
 
-        return self._try_get_wealth(address, url)
+        return self._try_get_wealth(address,amount, url)
 
     @ staticmethod
     @ try_decorator(
         "An error occured while attempting to generate wealth:\n{}",
         logger_method="error",
     )
-    def _try_get_wealth(address: Address, url: Optional[str] = None) -> str or None:
+    def _try_get_wealth(address: Address,amount:int, url: Optional[str] = None) -> str or None:
         """
         Get wealth from the faucet for the provided address.
 
@@ -932,7 +1001,8 @@ class SolanaFaucetApi(FaucetApi):
         solana_client = Client(url)
         response = None
         try:
-            response = solana_client.request_airdrop(PublicKey(address), 1000000000)
+            response = solana_client.request_airdrop(
+                PublicKey(address), amount)
         except Exception as e:
             msg = e
             pass

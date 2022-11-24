@@ -21,7 +21,7 @@
 
 import hashlib
 import logging
-import math
+import json
 import random
 import re
 import tempfile
@@ -40,6 +40,7 @@ from aea_ledger_solana import (
     # requests,
 )
 from solana.transaction import Transaction
+from solana.publickey import PublicKey
 
 # from web3 import Web3
 from web3._utils.request import _session_cache as session_cache
@@ -48,6 +49,7 @@ from aea.common import JSONLike
 from aea.crypto.helpers import DecryptError, KeyIsIncorrect
 
 from tests.conftest import DEFAULT_GANACHE_CHAIN_ID, MAX_FLAKY_RERUNS, ROOT_DIR
+AIRDROP_AMOUNT = 10_000_000_000
 
 
 # def get_history_data(n_blocks: int, base_multiplier: int = 100) -> Dict:
@@ -65,12 +67,12 @@ from tests.conftest import DEFAULT_GANACHE_CHAIN_ID, MAX_FLAKY_RERUNS, ROOT_DIR
 #     }
 
 
-# def test_creation(ethereum_private_key_file):
-#     """Test the creation of the crypto_objects."""
-#     assert EthereumCrypto(), "Managed to initialise the eth_account"
-#     assert EthereumCrypto(
-#         ethereum_private_key_file
-#     ), "Managed to load the eth private key"
+def test_creation(solana_private_key_file):
+    """Test the creation of the crypto_objects."""
+    assert SolanaCrypto(), "Managed to initialise the eth_account"
+    assert SolanaCrypto(
+        solana_private_key_file
+    ), "Managed to load the eth private key"
 
 
 # def test_initialization():
@@ -93,18 +95,18 @@ def test_derive_address():
     assert account.address == address, "Address derivation incorrect"
 
 
-def test_sign_and_recover_message():
-    """Test the signing and the recovery function for the sol_crypto."""
-    account = SolanaCrypto()
-    sign_bytes = account.sign_message(message=b"hello")
-    assert len(sign_bytes) > 0, "The len(signature) must not be 0"
-    # recovered_addresses = SolanaApi.recover_message(
-    #     message=b"hello", signature=sign_bytes
-    # )
-    # assert len(recovered_addresses) == 1, "Wrong number of addresses recovered."
-    # assert (
-    #     recovered_addresses[0] == account.address
-    # ), "Failed to recover the correct address."
+# def test_sign_and_recover_message():
+#     """Test the signing and the recovery function for the sol_crypto."""
+#     account = SolanaCrypto()
+#     sign_bytes = account.sign_message(message=b"hello")
+#     assert len(sign_bytes) > 0, "The len(signature) must not be 0"
+#     # recovered_addresses = SolanaApi.recover_message(
+#     #     message=b"hello", signature=sign_bytes
+#     # )
+#     # assert len(recovered_addresses) == 1, "Wrong number of addresses recovered."
+#     # assert (
+#     #     recovered_addresses[0] == account.address
+#     # ), "Failed to recover the correct address."
 
 
 # def test_sign_and_recover_message_public_key(ethereum_private_key_file):
@@ -127,44 +129,6 @@ def test_get_hash():
     expected_hash = "0x1c8aff950685c2ed4bc3174f3472287b56d9517b9c948127319a09a7a36deac8"
     hash_ = SolanaApi.get_hash(message=b"hello")
     assert expected_hash == hash_
-
-
-# def test_dump_positive(ethereum_private_key_file):
-#     """Test dump."""
-#     account = EthereumCrypto(ethereum_private_key_file)
-#     account.dump(MagicMock())
-
-
-# def test_api_creation(ethereum_testnet_config):
-#     """Test api instantiation."""
-#     assert EthereumApi(**ethereum_testnet_config), "Failed to initialise the api"
-
-
-# def test_api_none(ethereum_testnet_config):
-#     """Test the "api" of the cryptoApi is none."""
-#     eth_api = EthereumApi(**ethereum_testnet_config)
-#     assert eth_api.api is not None, "The api property is None."
-
-
-# def test_validate_address():
-#     """Test the is_valid_address functionality."""
-#     account = EthereumCrypto()
-#     assert EthereumApi.is_valid_address(account.address)
-#     assert not EthereumApi.is_valid_address(account.address + "wrong")
-
-
-# @pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
-# @pytest.mark.integration
-# @pytest.mark.ledger
-# def test_get_balance(ethereum_testnet_config, ganache, ethereum_private_key_file):
-#     """Test the balance is zero for a new account."""
-#     ethereum_api = EthereumApi(**ethereum_testnet_config)
-#     ec = EthereumCrypto()
-#     balance = ethereum_api.get_balance(ec.address)
-#     assert balance == 0, "New account has a positive balance."
-#     ec = EthereumCrypto(private_key_path=ethereum_private_key_file)
-#     balance = ethereum_api.get_balance(ec.address)
-#     assert balance > 0, "Existing account has no balance."
 
 
 @pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
@@ -190,8 +154,9 @@ def _wait_get_receipt(
     while not_settled and elapsed_time < time_to_wait:
         elapsed_time += sleep_time
         time.sleep(sleep_time)
-        transaction_receipt = solana_api.get_transaction_receipt(transaction_digest)
-        if transaction_receipt['result'] is None:
+        transaction_receipt = solana_api.get_transaction_receipt(
+            transaction_digest)
+        if transaction_receipt is None:
             continue
         is_settled = solana_api.is_transaction_settled(transaction_receipt)
         not_settled = not is_settled
@@ -201,18 +166,28 @@ def _wait_get_receipt(
 
 def _construct_and_settle_tx(
     solana_api: SolanaApi,
-    account: SolanaCrypto,
+    account1: SolanaCrypto,
+    account2:SolanaCrypto,
     tx_params: dict,
 ) -> Tuple[str, JSONLike, bool]:
     """Construct and settle a transaction."""
     transfer_transaction = solana_api.get_transfer_transaction(**tx_params)
+    
     assert (
         isinstance(transfer_transaction, Transaction)
     ), "Incorrect transfer_transaction constructed."
-
-    signed_transaction = account.sign_transaction(
-        transfer_transaction, solana_api.generate_tx_nonce(solana_api)
+    
+    nonce = solana_api.generate_tx_nonce(solana_api)
+    
+    if tx_params['unfunded_account']:    
+        signers = [account2]
+    else:
+        signers = []
+        
+    signed_transaction = account1.sign_transaction(
+        transfer_transaction, nonce, signers
     )
+    
     assert (
         isinstance(signed_transaction, Transaction)
     ), "Incorrect signed_transaction constructed."
@@ -224,7 +199,7 @@ def _construct_and_settle_tx(
         solana_api, transaction_digest
     )
 
-    assert transaction_receipt['result'] is not None, "Failed to retrieve transaction receipt."
+    assert transaction_receipt is not None, "Failed to retrieve transaction receipt."
 
     return transaction_digest, transaction_receipt, is_settled
 
@@ -232,22 +207,62 @@ def _construct_and_settle_tx(
 @pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
 @pytest.mark.integration
 @pytest.mark.ledger
-def test_construct_sign_and_submit_transfer_transaction():
+def test_unfunded_transfer_transaction():
     """Test the construction, signing and submitting of a transfer transaction."""
     account1 = SolanaCrypto(private_key_path="./solana_private_key.txt")
     account2 = SolanaCrypto()
 
+
+    solana_api = SolanaApi()
+
+    balance1 = solana_api.get_balance(account1.address)
+    balance2 = solana_api.get_balance(account2.address)
+    
+    AMOUNT = 1232323
+    tx_params = {
+        "sender_address": account1.address,
+        "destination_address": account2.address,
+        "amount": AMOUNT,
+        "unfunded_account": True,
+    }
+
+    transaction_digest, transaction_receipt, is_settled = _construct_and_settle_tx(
+        solana_api,
+        account1,
+        account2,
+        tx_params,
+        
+    )
+    assert is_settled, "Failed to verify tx!"
+
+    tx = solana_api.get_transaction(transaction_digest)
+
+    assert tx['blockTime'] == transaction_receipt['blockTime'], "Should be same"
+
+    balance3 = solana_api.get_balance(account2.address)
+
+    assert AMOUNT == balance3, "Should be the same balance"
+
+@pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
+@pytest.mark.integration
+@pytest.mark.ledger
+def test_funded_transfer_transaction():
+    """Test the construction, signing and submitting of a transfer transaction."""
+    account1 = SolanaCrypto(private_key_path="./solana_private_key.txt")
+    account2 = SolanaCrypto()
+
+
     solana_api = SolanaApi()
     solana_faucet_api = SolanaFaucetApi()
 
-    solana_faucet_api.get_wealth(account2.address)
+    solana_faucet_api.get_wealth(account2.address, AIRDROP_AMOUNT)
 
-    time.sleep(10)
     balance1 = solana_api.get_balance(account1.address)
+    
     balance2 = solana_api.get_balance(account2.address)
     counter = 0
     flag = True
-    while flag == True:
+    while flag == True and balance2 == 0:
         balance2 = solana_api.get_balance(account2.address)
         if balance2 != 0:
             flag = False
@@ -256,27 +271,30 @@ def test_construct_sign_and_submit_transfer_transaction():
             flag = False
         time.sleep(2)
 
-    AMOUNT = 232323
+    AMOUNT = 2222
     tx_params = {
         "sender_address": account1.address,
         "destination_address": account2.address,
         "amount": AMOUNT,
+        "unfunded_account": False,
     }
 
     transaction_digest, transaction_receipt, is_settled = _construct_and_settle_tx(
         solana_api,
         account1,
+        account2,
         tx_params,
+        
     )
     assert is_settled, "Failed to verify tx!"
 
     tx = solana_api.get_transaction(transaction_digest)
 
-    assert tx['result'] == transaction_receipt['result'], "Should be same"
+    assert tx['blockTime'] == transaction_receipt['blockTime'], "Should be same"
 
     balance3 = solana_api.get_balance(account2.address)
 
-    assert balance2 + AMOUNT == balance3, "Should be the same balance"
+    assert AMOUNT+AIRDROP_AMOUNT == balance3, "Should be the same balance"
 
 
 @pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
@@ -379,7 +397,8 @@ def test_get_wealth_positive(caplog):
 
 def test_load_contract_interface():
     """Test the load_contract_interface method."""
-    path = Path(ROOT_DIR, "tests", "data", "dummy_contract", "build", "idl.json")
+    path = Path(ROOT_DIR, "tests", "data",
+                "dummy_contract", "build", "idl.json")
     result = SolanaApi.load_contract_interface(path)
 
     assert "name" in result
@@ -387,69 +406,14 @@ def test_load_contract_interface():
 
 def test_load_contract_instance():
     """Test the load_contract_interface method."""
-    path = Path(ROOT_DIR, "tests", "data", "dummy_contract", "build", "idl.json")
+    path = Path(ROOT_DIR, "tests", "data",
+                "dummy_contract", "build", "idl.json")
     result = SolanaApi.load_contract_interface(path)
     pid = "ZETAxsqBRek56DhiGXrn75yj2NHU3aYUnxvHXpkf3aD"
     instance = SolanaApi.get_contract_instance(SolanaApi,
                                                contract_interface=result, contract_address=pid)
 
     assert hasattr(instance, 'coder')
-
-
-# @patch.object(EthereumApi, "_try_get_transaction_count", return_value=None)
-# def test_ethereum_api_get_transfer_transaction(*args):
-#     """Test EthereumApi.get_transfer_transaction."""
-#     ec1 = EthereumCrypto()
-#     ec2 = EthereumCrypto()
-#     ethereum_api = EthereumApi(**get_default_gas_strategies())
-#     args = {
-#         "sender_address": ec1.address,
-#         "destination_address": ec2.address,
-#         "amount": 1,
-#         "tx_fee": 0,
-#         "tx_nonce": "",
-#         "max_fee_per_gas": 20,
-#     }
-#     assert ethereum_api.get_transfer_transaction(**args) is None
-
-
-# @patch.object(EthereumApi, "_try_get_transaction_count", return_value=1)
-# @patch.object(EthereumApi, "_try_get_max_priority_fee", return_value=1)
-# def test_ethereum_api_get_transfer_transaction_2(*args):
-#     """Test EthereumApi.get_transfer_transaction."""
-#     ec1 = EthereumCrypto()
-#     ec2 = EthereumCrypto()
-#     ethereum_api = EthereumApi(**get_default_gas_strategies())
-#     ethereum_api._is_gas_estimation_enabled = True
-#     args = {
-#         "sender_address": ec1.address,
-#         "destination_address": ec2.address,
-#         "amount": 1,
-#         "tx_fee": 0,
-#         "tx_nonce": "",
-#         "max_fee_per_gas": 10,
-#     }
-#     with patch.object(ethereum_api.api.eth, "estimate_gas", return_value=1):
-#         assert len(ethereum_api.get_transfer_transaction(**args)) == 8
-
-
-# @patch.object(EthereumApi, "_try_get_transaction_count", return_value=1)
-# def test_ethereum_api_get_transfer_transaction_3(*args):
-#     """Test EthereumApi.get_transfer_transaction."""
-#     ec1 = EthereumCrypto()
-#     ec2 = EthereumCrypto()
-#     ethereum_api = EthereumApi(**get_default_gas_strategies())
-#     ethereum_api._is_gas_estimation_enabled = True
-#     args = {
-#         "sender_address": ec1.address,
-#         "destination_address": ec2.address,
-#         "amount": 1,
-#         "tx_fee": 0,
-#         "tx_nonce": "",
-#         "max_fee_per_gas": 10,
-#     }
-#     with patch.object(ethereum_api.api.eth, "_max_priority_fee", return_value=1):
-#         assert len(ethereum_api.get_transfer_transaction(**args)) == 8
 
 
 # def test_ethereum_api_get_deploy_transaction(ethereum_testnet_config):
