@@ -45,6 +45,8 @@ from solana.rpc.api import Client
 from solana.rpc import types
 from solana.keypair import Keypair
 from solders.signature import Signature
+from anchorpy import Idl
+
 
 from nacl.signing import VerifyKey
 from pathlib import Path
@@ -323,17 +325,17 @@ class SolanaApi(LedgerApi):
         return response.value
 
     def get_state(
-        self, callable_name: str, *args: Any, raise_on_try: bool = False, **kwargs: Any
+        self, address: str, *args: Any, raise_on_try: bool = False, **kwargs: Any
     ) -> Optional[JSONLike]:
         """Call a specified function on the ledger API."""
         response = self._try_get_state(
-            callable_name, *args, raise_on_try=raise_on_try, **kwargs
+            address, *args, raise_on_try=raise_on_try, **kwargs
         )
         return response
 
     @try_decorator("Unable to get state: {}", logger_method="warning")
     def _try_get_state(  # pylint: disable=unused-argument
-        self, callable_name: str, *args: Any, **kwargs: Any
+        self, address: str, *args: Any, **kwargs: Any
     ) -> Optional[JSONLike]:
         """Try to call a function on the ledger API."""
 
@@ -343,7 +345,7 @@ class SolanaApi(LedgerApi):
             )
             kwargs.pop("raise_on_try")
 
-        function = getattr(self._api.eth, callable_name)
+        account_object = self._api.get_account_info_json_parsed(PublicKey(address))
         response = function(*args, **kwargs)
 
         # if isinstance(response, AttributeDict):
@@ -427,9 +429,9 @@ class SolanaApi(LedgerApi):
                 client = Client(endpoint=rpc_api)
                 account_info = client.get_account_info(idl_address)
 
-                account_info_val = account_info["result"]["value"]
+                account_info_val = account_info.value
                 idl_account = _decode_idl_account(
-                    b64decode(account_info_val["data"][0])[
+                    bytes(account_info_val.data)[
                         ACCOUNT_DISCRIMINATOR_SIZE:]
                 )
                 inflated_idl = _pako_inflate(
@@ -737,7 +739,7 @@ class SolanaApi(LedgerApi):
         :return: the contract instance
         """
         program_id = PublicKey(contract_address)
-        idl = Idl.from_json(contract_interface)
+        idl = Idl.from_json(json.dumps(contract_interface))
 
         pg = Program(idl, program_id)
 
@@ -1001,13 +1003,13 @@ class SolanaFaucetApi(FaucetApi):
         solana_client = Client(url)
         response = None
         try:
-            response = solana_client.request_airdrop(
+            resp = solana_client.request_airdrop(
                 PublicKey(address), amount)
         except Exception as e:
             msg = e
             pass
-
-        if response == None:
+        response = (json.loads(resp.to_json()))
+        if response['result'] == None:
             _default_logger.error("Response: {}".format("airdrop failed"))
         elif "error" in response:  # pragma: no cover
             _default_logger.error("Response: {}".format("airdrop failed"))
