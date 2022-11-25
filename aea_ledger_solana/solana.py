@@ -17,7 +17,7 @@
 #   limitations under the License.
 #
 # ------------------------------------------------------------------------------
-"""Ethereum module wrapping the public and private key cryptography and ledger api."""
+"""Solana module wrapping the public and private key cryptography and ledger api."""
 import decimal
 import json
 import logging
@@ -346,18 +346,10 @@ class SolanaApi(LedgerApi):
             kwargs.pop("raise_on_try")
 
         account_object = self._api.get_account_info_json_parsed(PublicKey(address))
-        response = function(*args, **kwargs)
+        account_info_val = json.loads(account_object.value.to_json())
+        return account_info_val
 
-        # if isinstance(response, AttributeDict):
-        #     result = AttributeDictTranslator.to_dict(response)
-        #     return result
-
-        # if type(response) in (int, float, bytes, str, list, dict):  # pragma: nocover
-        #     # missing full checks for nested objects
-        #     return {f"{callable_name}_result": response}
-        raise NotImplementedError(  # pragma: nocover
-            f"Response must be of types=int, float, bytes, str, list, dict. Found={type(response)}."
-        )
+    
 
     @classmethod
     def recover_message(
@@ -699,50 +691,21 @@ class SolanaApi(LedgerApi):
         # pylint: disable=no-member
         return json.loads(tx.value.to_json())
 
-    # @ try_decorator(
-    #     "Error when attempting getting tx revert reason: {}", logger_method="debug"
-    # )
-    # def _try_get_revert_reason(self, tx: TxData, **_kwargs: Any) -> str:
-    #     """Try to check the revert reason of a transaction.
-    #     :param tx: the transaction for which we want to get the revert reason.
-    #     :param _kwargs: the keyword arguments. Possible kwargs are:
-    #         `raise_on_try`: bool flag specifying whether the method will raise or log on error (used by `try_decorator`)
-    #     :return: the revert reason message.
-    #     """
-    #     # build a new transaction to replay:
-    #     replay_tx = {
-    #         "to": tx["to"],
-    #         "from": tx["from"],
-    #         "value": tx["value"],
-    #         "data": tx["input"],
-    #     }
-    # try:
-    #     # replay the transaction on the provider
-    #     self.api.eth.call(replay_tx, tx["blockNumber"] - 1)
-    # except SolidityError as e:
-    #     # execution reverted exception
-    #     return str(e)
-    # except HTTPError as e:
-    #     # http exception
-    #     raise e
-    # else:
-    #     # given tx not reverted
-    #     raise ValueError(f"The given transaction has not been reverted!\ntx: {tx}")
     def get_contract_instance(
         self, contract_interface: Dict[str, str], contract_address: str
     ) -> Any:
         """
         Get the instance of a contract.
-
+        
         :param contract_interface: the contract interface.
         :param contract_address: the contract address.
         :return: the contract instance
         """
+        
         program_id = PublicKey(contract_address)
         idl = Idl.from_json(json.dumps(contract_interface))
-
         pg = Program(idl, program_id)
-
+        
         return pg
 
     def get_deploy_transaction(  # pylint: disable=arguments-differ

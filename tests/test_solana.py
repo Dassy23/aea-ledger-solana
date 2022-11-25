@@ -24,7 +24,8 @@ import logging
 import json
 import random
 import re
-import tempfile
+import os
+import subprocess
 import time
 from pathlib import Path
 from typing import Dict, Generator, Optional, Tuple, Union, cast
@@ -52,19 +53,6 @@ from tests.conftest import  MAX_FLAKY_RERUNS, ROOT_DIR, SOLANA_PRIVATE_KEY_FILE_
 
 
 
-# def get_history_data(n_blocks: int, base_multiplier: int = 100) -> Dict:
-#     """Returns dummy blockchain history data."""
-
-#     return {
-#         "oldestBlock": 1,
-#         "reward": [
-#             [math.ceil(random.random() * base_multiplier) * 1e1]
-#             for _ in range(n_blocks)
-#         ],
-#         "baseFeePerGas": [
-#             math.ceil(random.random() * base_multiplier) * 1e9 for _ in range(n_blocks)
-#         ],
-#     }
 
 
 def test_creation():
@@ -93,6 +81,7 @@ def test_derive_address():
     account = SolanaCrypto()
     address = SolanaApi.get_address_from_public_key(account.public_key)
     assert account.address == address, "Address derivation incorrect"
+
 
 
 # def test_sign_and_recover_message():
@@ -141,7 +130,7 @@ def test_load_contract_interface_from_program_id():
         program_address="ZETAxsqBRek56DhiGXrn75yj2NHU3aYUnxvHXpkf3aD", rpc_api="https://api.mainnet-beta.solana.com")
 
     assert "name" in contract_interface, "idl has a name"
-
+    
 
 def _wait_get_receipt(
     solana_api: SolanaApi, transaction_digest: str
@@ -311,6 +300,20 @@ def test_get_sol_balance(caplog):
         assert isinstance(balance, int)
 
 
+
+@pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
+@pytest.mark.integration
+@pytest.mark.ledger
+def test_state_from_address():
+    """Test the get_address_from_public_key method"""
+    account1 = SolanaCrypto(private_key_path=SOLANA_PRIVATE_KEY_FILE_1)
+
+    solana_api = SolanaApi()
+    account_state = solana_api.get_state(account1.address)
+    
+    assert ("lamport" and "data" and "owner" and "rentEpoch") in account_state, "State not in correct format"
+
+
 @pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
 @pytest.mark.integration
 @pytest.mark.ledger
@@ -334,7 +337,6 @@ def test_get_wealth(caplog):
     """Test the balance is zero for a new account."""
     with caplog.at_level(logging.DEBUG, logger="aea.crypto.solana._default_logger"):
         solana_faucet_api = SolanaFaucetApi()
-        # sc = SolanaCrypto(private_key_path=SOLANA_PRIVATE_KEY_FILE_1)
         sc = SolanaCrypto()
 
         tx_signature = solana_faucet_api.get_wealth(
@@ -346,53 +348,21 @@ def test_get_wealth(caplog):
 @pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
 @pytest.mark.integration
 @pytest.mark.ledger
-def test_get_wealth_positive(caplog):
-    """Test the balance is zero for a new account."""
-    with caplog.at_level(logging.DEBUG, logger="aea.crypto.solana._default_logger"):
-        solana_faucet_api = SolanaFaucetApi()
-        # sc = SolanaCrypto(private_key_path=SOLANA_PRIVATE_KEY_FILE_1)
-        sc = SolanaCrypto()
-
-        tx_signature = solana_faucet_api.get_wealth(
-            sc.address, "test")
-
-        assert (
-            "airdrop failed" in caplog.text
-        ), f"Cannot find message in output: {caplog.text}"
-
-
-# @pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
-# @pytest.mark.integration
-# @pytest.mark.ledger
-# def test_get_deploy_transaction(ethereum_testnet_config, ganache):
-#     """Test the get deploy transaction method."""
-#     ethereum_api = EthereumApi(**ethereum_testnet_config)
-#     ec2 = EthereumCrypto()
-#     interface = {"abi": [], "bytecode": b""}
-#     max_priority_fee_per_gas = 1000000000
-#     max_fee_per_gas = 1000000000
-#     deploy_tx = ethereum_api.get_deploy_transaction(
-#         contract_interface=interface,
-#         deployer_address=ec2.address,
-#         value=0,
-#         max_priority_fee_per_gas=max_priority_fee_per_gas,
-#         max_fee_per_gas=max_fee_per_gas,
-#     )
-#     assert type(deploy_tx) == dict and len(deploy_tx) == 8
-#     assert all(
-#         key
-#         in [
-#             "from",
-#             "value",
-#             "gas",
-#             "nonce",
-#             "data",
-#             "maxPriorityFeePerGas",
-#             "maxFeePerGas",
-#             "chainId",
-#         ]
-#         for key in deploy_tx.keys()
-#     )
+def test_deploy_program():
+    """Test the deploy program method."""
+    program_work_dir_path = Path(ROOT_DIR, "tests", "data",
+                "spl-token-faucet")
+    byte_code_path = Path(ROOT_DIR, "tests", "data",
+                "spl-token-faucet", "target", "deploy", "spl_token_faucet.so")
+    keypair_path = Path(ROOT_DIR, "tests", "data",
+                "spl-token-faucet", "target", "deploy", "spl_token_faucet-keypair.json")
+    anchor_version="0.18.0"
+    
+    p1 = subprocess.run(f'avm use {anchor_version}',cwd=program_work_dir_path)
+    
+    interface = {"abi": [], "bytecode": b""}
+    max_priority_fee_per_gas = 1000000000
+    max_fee_per_gas = 1000000000
 
 
 def test_load_contract_interface():
@@ -627,43 +597,3 @@ def test_session_cache():
 
 #         assert result == dict(logs=[])
 
-
-# @pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
-# @pytest.mark.integration
-# @pytest.mark.ledger
-# def test_revert_reason(
-#     ethereum_private_key_file: str,
-#     ethereum_testnet_config: dict,
-#     ganache: Generator,
-# ) -> None:
-#     """Test the retrieval of the revert reason for a transaction."""
-#     account = EthereumCrypto(private_key_path=ethereum_private_key_file)
-#     ec2 = EthereumCrypto()
-#     ethereum_api = EthereumApi(**ethereum_testnet_config)
-
-#     tx_params = {
-#         "sender_address": account.address,
-#         "destination_address": ec2.address,
-#         "amount": 40000,
-#         "tx_fee": 30000,
-#         "tx_nonce": 0,
-#         "chain_id": DEFAULT_GANACHE_CHAIN_ID,
-#         "max_priority_fee_per_gas": 1_000_000_000,
-#         "max_fee_per_gas": 1_000_000_000,
-#     }
-
-#     with mock.patch(
-#         "web3.eth.Eth.get_transaction_receipt",
-#         return_value=AttributeDict({"status": 0}),
-#     ):
-#         with mock.patch(
-#             "web3.eth.Eth.call",
-#             side_effect=SolidityError("test revert reason"),
-#         ):
-#             _, transaction_receipt, is_settled = _construct_and_settle_tx(
-#                 ethereum_api,
-#                 account,
-#                 tx_params,
-#             )
-
-#             assert transaction_receipt["revert_reason"] == "test revert reason"
