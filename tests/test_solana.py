@@ -329,6 +329,24 @@ def test_get_tx(caplog):
         tx, settled = _wait_get_receipt(solana_api, tx_signature)
         assert settled is True
 
+@pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
+@pytest.mark.integration
+@pytest.mark.ledger
+def test_encrypt_decrypt_privatekey(caplog):
+    """Test the balance is zero for a new account."""
+    with caplog.at_level(logging.DEBUG, logger="aea.crypto.solana._default_logger"):
+        sc = SolanaCrypto(private_key_path=SOLANA_PRIVATE_KEY_FILE_1)
+        privKey = sc.private_key
+
+      
+        encrypted = sc.encrypt("test123456788")
+        
+        decrypted = sc.decrypt(encrypted, "test123456788")
+        assert privKey == decrypted, "Private keys match"
+        
+        # decrypted = sc.decrypt(encrypted, "test1234567")
+        # assert privKey != decrypted, "Private keys dont match"
+    
 
 @pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
 @pytest.mark.integration

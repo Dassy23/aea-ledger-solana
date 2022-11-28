@@ -21,7 +21,9 @@
 import decimal
 import json
 import logging
-import math
+import hashlib
+import base64
+
 import threading
 import warnings
 from copy import deepcopy
@@ -46,6 +48,7 @@ from solana.rpc import types
 from solana.keypair import Keypair
 from solders.signature import Signature
 from anchorpy import Idl
+from cryptography.fernet import Fernet
 
 
 from nacl.signing import VerifyKey
@@ -190,7 +193,7 @@ class SolanaCrypto(Crypto[Keypair]):
 
         return signed_msg
 
-    def sign_transaction(self, transaction: JSONLike, recent_blockhash: Blockhash, signers: Optional[list]) -> JSONLike:
+    def sign_transaction(self, transaction: JSONLike, recent_blockhash: Blockhash, signers: Optional[list] = []) -> JSONLike:
         """
         Sign a transaction in bytes string form.
 
@@ -203,11 +206,11 @@ class SolanaCrypto(Crypto[Keypair]):
         signers = [Keypair.from_secret_key(bytes.fromhex(signer.private_key)) for signer in signers]
         transaction.recent_blockhash = recent_blockhash
         signers.append(keypair)
-        # transaction.sign([signers])
         try:
             transaction.sign(*signers)
         except Exception as e:
             print(e)
+            raise Exception(e)
         return transaction
     
     def sign_partial(self, transaction: JSONLike, recent_blockhash: Blockhash) -> JSONLike:
@@ -233,7 +236,7 @@ class SolanaCrypto(Crypto[Keypair]):
         Generate a key pair for Solana network.
 
         :param extra_entropy: add extra randomness to whatever randomness your OS can provide
-        :return: account object
+        :return: keypair object
         """
         account = Keypair.generate()  # pylint: disable=no-value-for-parameter
         return account
@@ -245,8 +248,17 @@ class SolanaCrypto(Crypto[Keypair]):
         :param password: the password to decrypt.
         :return: json string containing encrypted private key.
         """
-        encrypted = Account.encrypt(self.private_key, password)
-        return json.dumps(encrypted)
+        try:
+            pw = str.encode(password)
+            hash_object = hashlib.sha256(pw)
+            hex_dig = hash_object.digest()
+            base64_bytes = base64.b64encode(hex_dig)
+            fernet = Fernet(base64_bytes)
+            enc_mac = fernet.encrypt(self.private_key.encode())
+        except Exception as e:
+            raise Exception("Encryption failed")
+
+        return json.dumps(enc_mac.decode())
 
     @ classmethod
     def decrypt(cls, keyfile_json: str, password: str) -> str:
@@ -255,15 +267,21 @@ class SolanaCrypto(Crypto[Keypair]):
 
         :param keyfile_json: json str containing encrypted private key.
         :param password: the password to decrypt.
-        :return: the raw private key (without leading "0x").
+        :return: the raw private key.
         """
         try:
-            private_key = Account.decrypt(keyfile_json, password)
+            keyfile = json.loads(keyfile_json)
+            keyfile_bytes = keyfile.encode()
+            pw = str.encode(password)
+            hash_object = hashlib.sha256(pw)
+            hex_dig = hash_object.digest()
+            base64_bytes = base64.b64encode(hex_dig)
+            fernet = Fernet(base64_bytes)
+            
+            dec_mac = fernet.decrypt(keyfile_bytes).decode()
         except ValueError as e:
-            if e.args[0] == "MAC mismatch":
-                raise DecryptError() from e
-            raise
-        return private_key.hex()[2:]
+            raise DecryptError() from e
+        return dec_mac
 
 
 class SolanaApi(LedgerApi):

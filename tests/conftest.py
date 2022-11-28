@@ -32,11 +32,7 @@ from typing import Callable, Generator
 
 import pytest
 from aea_ledger_solana import SolanaCrypto
-# from aea_ledger_solana.solana import (
-#     DEFAULT_EIP1559_STRATEGY,
-#     DEFAULT_EIP1559_STRATEGY_POLYGON,
-#     DEFAULT_GAS_STATION_STRATEGY,
-# )
+
 from aea_ledger_solana.test_tools.docker_images import DockerImage, GanacheDockerImage
 
 from aea.configurations.constants import PRIVATE_KEY_PATH_SCHEMA
@@ -48,34 +44,18 @@ MAX_FLAKY_RERUNS = 3
 AIRDROP_AMOUNT = 10_000_000_000
 SOLANA_PRIVATE_KEY_FILE_1 = "./solana_private_key.txt"
 
-ETHEREUM = SolanaCrypto.identifier
+SOLANA = SolanaCrypto.identifier
 
-ETHEREUM_PRIVATE_KEY_FILE = PRIVATE_KEY_PATH_SCHEMA.format(ETHEREUM)
-ETHEREUM_PRIVATE_KEY_PATH = os.path.join(
-    ROOT_DIR, "tests", "data", ETHEREUM_PRIVATE_KEY_FILE
+SOLANA_PRIVATE_KEY_FILE = PRIVATE_KEY_PATH_SCHEMA.format(SOLANA)
+SOLANA_PRIVATE_KEY_PATH = os.path.join(
+    ROOT_DIR, "tests", "data", SOLANA_PRIVATE_KEY_FILE
 )
 
-ETHEREUM_DEFAULT_ADDRESS = "http://127.0.0.1:8545"
-ETHEREUM_DEFAULT_CHAIN_ID = 1337
-ETHEREUM_DEFAULT_CURRENCY_DENOM = "wei"
-ETHEREUM_TESTNET_CONFIG = {"address": ETHEREUM_DEFAULT_ADDRESS}
+SOLANA_DEFAULT_ADDRESS = "http://127.0.0.1:8545"
+SOLANA_DEFAULT_CHAIN_ID = 420
+SOLANA_DEFAULT_CURRENCY_DENOM = "lamports"
+SOLANA_TESTNET_CONFIG = {"address": SOLANA_DEFAULT_ADDRESS}
 
-# URL to local Ganache instance
-DEFAULT_GANACHE_ADDR = "http://127.0.0.1"
-DEFAULT_GANACHE_PORT = 8545
-DEFAULT_GANACHE_CHAIN_ID = 1337
-GAS_PRICE_API_KEY = ""
-
-DEFAULT_AMOUNT = 1000000000000000000000
-FUNDED_ETH_PRIVATE_KEY_1 = (
-    "0xa337a9149b4e1eafd6c21c421254cf7f98130233595db25f0f6f0a545fb08883"
-)
-FUNDED_ETH_PRIVATE_KEY_2 = (
-    "0x04b4cecf78288f2ab09d1b4c60219556928f86220f0fb2dcfc05e6a1c1149dbf"
-)
-FUNDED_ETH_PRIVATE_KEY_3 = (
-    "0x6F611408F7EF304947621C51A4B7D84A13A2B9786E9F984DA790A096E8260C64"
-)
 
 logger = logging.getLogger(__name__)
 
@@ -143,9 +123,9 @@ def action_for_platform(platform_name: str, skip: bool = True) -> Callable:
 
 
 @pytest.fixture(scope="session")
-def ethereum_private_key_file():
-    """Pytest fixture to create a temporary Ethereum private key file."""
-    crypto = EthereumCrypto()
+def solana_private_key_file():
+    """Pytest fixture to create a temporary Solana private key file."""
+    crypto = SolanaCrypto()
     temp_dir = Path(tempfile.mkdtemp())
     try:
         temp_file = temp_dir / "private.key"
@@ -168,83 +148,17 @@ gas_price_strategies:
 
 
 @pytest.fixture(scope="session")
-def ethereum_testnet_config(ganache_addr, ganache_port):
-    """Get Ethereum ledger api configurations using Ganache."""
+def solana_testnet_config(ganache_addr, ganache_port):
+    """Get Solana ledger api configurations using Ganache."""
     new_uri = f"{ganache_addr}:{ganache_port}"
     new_config = {
         "address": new_uri,
-        "chain_id": DEFAULT_GANACHE_CHAIN_ID,
-        "denom": ETHEREUM_DEFAULT_CURRENCY_DENOM,
-        "default_gas_price_strategy": "eip1559",
-        "gas_price_strategies": {
-            "gas_station": DEFAULT_GAS_STATION_STRATEGY,
-            "eip1559": DEFAULT_EIP1559_STRATEGY,
-        },
+        "chain_id": SOLANA_DEFAULT_CHAIN_ID,
+        "denom": SOLANA_DEFAULT_CURRENCY_DENOM,
     }
     return new_config
 
 
-@pytest.fixture(scope="session")
-def polygon_testnet_config(ganache_addr, ganache_port):
-    """Get Polygon ledger api configurations using Ganache."""
-    new_uri = f"{ganache_addr}:{ganache_port}"
-    new_config = {
-        "address": new_uri,
-        "chain_id": DEFAULT_GANACHE_CHAIN_ID,
-        "denom": ETHEREUM_DEFAULT_CURRENCY_DENOM,
-        "default_gas_price_strategy": "eip1559",
-        "gas_price_strategies": {
-            "eip1559_polygon": DEFAULT_EIP1559_STRATEGY_POLYGON,
-        },
-        "poa_chain": True,
-    }
-    return new_config
-
-
-@pytest.fixture(scope="session")
-def ganache_addr() -> str:
-    """HTTP address to the Ganache node."""
-    return DEFAULT_GANACHE_ADDR
-
-
-@pytest.fixture(scope="session")
-def ganache_port() -> int:
-    """Port of the connection to the OEF Node to use during the tests."""
-    return DEFAULT_GANACHE_PORT
-
-
-@pytest.fixture(scope="session")
-def ganache_configuration(ethereum_private_key_file):
-    """Get the Ganache configuration for testing purposes."""
-    return dict(
-        accounts_balances=[
-            (FUNDED_ETH_PRIVATE_KEY_1, DEFAULT_AMOUNT),
-            (FUNDED_ETH_PRIVATE_KEY_2, DEFAULT_AMOUNT),
-            (FUNDED_ETH_PRIVATE_KEY_3, DEFAULT_AMOUNT),
-            (Path(ethereum_private_key_file).read_text().strip(), DEFAULT_AMOUNT),
-        ],
-    )
-
-
-@pytest.mark.integration
-@pytest.mark.ledger
-@pytest.fixture(scope="session")
-@action_for_platform("Linux", skip=False)
-def ganache(
-    ganache_configuration,
-    ganache_addr,
-    ganache_port,
-    timeout: float = 2.0,
-    max_attempts: int = 10,
-):
-    """Launch the Ganache image."""
-    import docker
-
-    client = docker.from_env()
-    image = GanacheDockerImage(
-        client, "http://127.0.0.1", 8545, config=ganache_configuration
-    )
-    yield from _launch_image(image, timeout=timeout, max_attempts=max_attempts)
 
 
 def _launch_image(
