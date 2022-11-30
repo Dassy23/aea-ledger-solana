@@ -58,12 +58,17 @@ import json
 from solana.blockhash import BlockhashCache, Blockhash
 from solana.transaction import TransactionInstruction, Transaction
 from anchorpy import Program, Provider
-from anchorpy.idl import  _decode_idl_account, _idl_address
+from anchorpy.idl import _decode_idl_account, _idl_address
 from anchorpy.coder.accounts import ACCOUNT_DISCRIMINATOR_SIZE
 from solana.system_program import TransferParams, transfer
 from solana.transaction import Transaction
-from solana.system_program import create_account,SYS_PROGRAM_ID
+from solana.system_program import create_account, SYS_PROGRAM_ID
 from solana.system_program import CreateAccountParams
+import solana.system_program as sp
+import spl.token.instructions as spl_token
+from spl.token._layouts import ACCOUNT_LAYOUT, MINT_LAYOUT, MULTISIG_LAYOUT
+from spl.token.core import AccountInfo, MintInfo, _TokenCore
+
 
 from base64 import b64decode
 
@@ -71,8 +76,6 @@ from lru import LRU
 from eth_keys import keys
 import web3._utils.request
 from web3 import HTTPProvider, Web3
-from eth_account.signers.local import LocalAccount
-from eth_account import Account
 
 
 _default_logger = logging.getLogger(__name__)
@@ -153,7 +156,7 @@ class SolanaCrypto(Crypto[Keypair]):
 
         :return: an address string in hex format
         """
-        return self._address
+        return self._address.to_base58().decode()
 
     @classmethod
     def load_private_key_from_path(
@@ -203,7 +206,8 @@ class SolanaCrypto(Crypto[Keypair]):
         """
 
         keypair = Keypair.from_secret_key(bytes.fromhex(self.private_key))
-        signers = [Keypair.from_secret_key(bytes.fromhex(signer.private_key)) for signer in signers]
+        signers = [Keypair.from_secret_key(bytes.fromhex(
+            signer.private_key)) for signer in signers]
         transaction.recent_blockhash = recent_blockhash
         signers.append(keypair)
         try:
@@ -212,7 +216,7 @@ class SolanaCrypto(Crypto[Keypair]):
             print(e)
             raise Exception(e)
         return transaction
-    
+
     def sign_partial(self, transaction: JSONLike, recent_blockhash: Blockhash) -> JSONLike:
         """
         Sign a transaction in bytes string form.
@@ -277,7 +281,7 @@ class SolanaCrypto(Crypto[Keypair]):
             hex_dig = hash_object.digest()
             base64_bytes = base64.b64encode(hex_dig)
             fernet = Fernet(base64_bytes)
-            
+
             dec_mac = fernet.decrypt(keyfile_bytes).decode()
         except ValueError as e:
             raise DecryptError() from e
@@ -305,18 +309,6 @@ class SolanaApi(LedgerApi):
         """Get the underlying API object."""
         return self._api
 
-    @property
-    def recent_blockhash(self) -> str:
-        """
-        Return a recent blockhash.
-
-
-        :return: a blockhash
-        """
-        result = BlockhashCache()
-
-        return result
-
     def update_with_gas_estimate(self, transaction: JSONLike) -> JSONLike:
         """
         **DO NOT NEED**
@@ -342,6 +334,29 @@ class SolanaApi(LedgerApi):
         response = self._api.get_balance(address)  # pylint: disable=no-member
         return response.value
 
+    # def get_token_balances(
+    #     self, address: Address, raise_on_try: bool = False
+    # ) -> list:
+    #     """Get the balance of a given account."""
+    #     return self._try_get_token_balances(address, raise_on_try=raise_on_try)
+
+    # @try_decorator("Unable to retrieve balance: {}", logger_method="warning")
+    # def _try_get_token_balances(self, address: Address, **_kwargs: Any) -> list:
+    #     """Get the token balances of a given owner."""
+    #     txOpts = types.TokenAccountOpts(program_id=PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA'))
+    #     response = self._api.get_token_accounts_by_owner_json_parsed(PublicKey(address),opts=txOpts)  # pylint: disable=no-member
+    #     balances = []
+    #     for key in response.value:
+    #         balance = json.loads(key.account.data.parsed)
+    #         balances.append(
+    #             {
+    #                 "mint": balance['info']['mint'],
+    #                 "balance":balance['info']['tokenAmount']['uiAmount']
+    #             }
+    #             )
+
+    #     return balances
+
     def get_state(
         self, address: str, *args: Any, raise_on_try: bool = False, **kwargs: Any
     ) -> Optional[JSONLike]:
@@ -363,11 +378,10 @@ class SolanaApi(LedgerApi):
             )
             kwargs.pop("raise_on_try")
 
-        account_object = self._api.get_account_info_json_parsed(PublicKey(address))
+        account_object = self._api.get_account_info_json_parsed(
+            PublicKey(address))
         account_info_val = json.loads(account_object.value.to_json())
         return account_info_val
-
-    
 
     @classmethod
     def recover_message(
@@ -457,7 +471,6 @@ class SolanaApi(LedgerApi):
             return contract_interface
         else:
             raise Exception("Could not locate IDL")
-        return contract_interface
 
     @ staticmethod
     def is_transaction_valid(
@@ -469,6 +482,7 @@ class SolanaApi(LedgerApi):
     ) -> bool:
         """
         Check whether a transaction is valid or not.
+        **TO BE DONE**
 
         :param tx: the transaction.
         :param seller: the address of the seller.
@@ -513,19 +527,23 @@ class SolanaApi(LedgerApi):
         return digest
 
     @ staticmethod
-    def get_contract_address(tx_receipt: JSONLike) -> Optional[str]:
+    def get_contract_address(tx_receipt: JSONLike) -> Optional[list[str]]:
         """
-        Retrieve the `contract_address` from a transaction receipt.
+        Retrieve the `contract_addresses` from a transaction receipt.
+        **Solana can have many contract addresses in one tx**
 
         :param tx_receipt: the receipt of the transaction.
         :return: the contract address, if present
         """
-        contract_address = cast(
-            Optional[str], tx_receipt.get("contractAddress", None))
-        return contract_address
+        contract_addresses = []
+        keys = tx_receipt['transaction']['message']['accountKeys']
+        for ix in tx_receipt['transaction']['message']['instructions']:
+            program_index = ix['programIdIndex']
+            contract_addresses.append(keys[program_index])
+        return contract_addresses
 
     @ classmethod
-    def get_address_from_public_key(cls, public_key: str) -> str:
+    def get_address_from_public_key(cls, public_key: PublicKey) -> str:
         """
         Get the address from the public key.
 
@@ -533,7 +551,7 @@ class SolanaApi(LedgerApi):
         :return: str
         """
 
-        return public_key
+        return public_key.to_base58().decode()
 
     @ staticmethod
     def generate_tx_nonce(self) -> str:
@@ -573,12 +591,12 @@ class SolanaApi(LedgerApi):
         :return: the transfer transaction
         """
         chain_id = chain_id if chain_id is not None else self._chain_id
-        
+
         if unfunded_account:
             destination_balance = self.get_balance(destination_address)
             if destination_balance != 0:
                 raise Exception("Account is already funded")
-            
+
         if unfunded_account and amount > RENT_EXEMPT_AMOUNT:
             params = CreateAccountParams(
                 from_pubkey=PublicKey(sender_address),
@@ -586,14 +604,14 @@ class SolanaApi(LedgerApi):
                 lamports=RENT_EXEMPT_AMOUNT,
                 space=1,
                 program_id=SYS_PROGRAM_ID
-                )
+            )
             createAccountInstruction = create_account(params)
             txn = Transaction(fee_payer=sender_address).add(createAccountInstruction).add(transfer(TransferParams(
                 from_pubkey=PublicKey(sender_address), to_pubkey=PublicKey(destination_address), lamports=amount-RENT_EXEMPT_AMOUNT)))
-            
+
         elif unfunded_account and amount < RENT_EXEMPT_AMOUNT:
             raise Exception("Not enough funds sent to initialize account")
-        else:   
+        else:
             txn = Transaction(fee_payer=sender_address).add(transfer(TransferParams(
                 from_pubkey=PublicKey(sender_address), to_pubkey=PublicKey(destination_address), lamports=amount)))
 
@@ -709,21 +727,71 @@ class SolanaApi(LedgerApi):
         # pylint: disable=no-member
         return json.loads(tx.value.to_json())
 
+    # def get_create_mint_transaction(
+    #     self,
+    #     payer: Keypair,
+    #     mint_authority: PublicKey,
+    #     decimals: int,
+    #     program_id: PublicKey,
+    #     freeze_authority: Optional[PublicKey] = None,
+    #     skip_confirmation: bool = False,
+    #     recent_blockhash: Optional[Blockhash] = None,
+
+    #     raise_on_try: bool = False,
+    # ) -> Optional[JSONLike]:
+    #     """
+    #     Get the transaction.
+
+    #     :param tx_digest: the transaction digest.
+    #     :param _kwargs: the keyword arguments. Possible kwargs are:
+    #         `raise_on_try`: bool flag specifying whether the method will raise or log on error (used by `try_decorator`)
+    #     :return: the tx, if found
+    #     """
+    #     resp = self._api.get_minimum_balance_for_rent_exemption(ACCOUNT_LAYOUT.sizeof())
+    #     balance_needed = resp.value
+    #     recent_blockhash = self.generate_tx_nonce(self)
+
+    #     txn = Transaction()
+    #     txn.add(
+    #         sp.create_account(
+    #             sp.CreateAccountParams(
+    #                 from_pubkey=payer.public_key,
+    #                 new_account_pubkey=mint_authority,
+    #                 lamports=balance_needed,
+    #                 space=MINT_LAYOUT.sizeof(),
+    #                 program_id=program_id,
+    #             )
+    #         )
+    #     )
+    #     txn.add(
+    #         spl_token.initialize_mint(
+    #             spl_token.InitializeMintParams(
+    #                 program_id=program_id,
+    #                 mint=mint_authority,
+    #                 decimals=decimals,
+    #                 mint_authority=mint_authority,
+    #                 freeze_authority=freeze_authority,
+    #             )
+    #         )
+    #     )
+    #     txn.recent_blockhash = recent_blockhash
+    #     return txn
+
     def get_contract_instance(
         self, contract_interface: Dict[str, str], contract_address: str
     ) -> Any:
         """
         Get the instance of a contract.
-        
+
         :param contract_interface: the contract interface.
         :param contract_address: the contract address.
         :return: the contract instance
         """
-        
+
         program_id = PublicKey(contract_address)
         idl = Idl.from_json(json.dumps(contract_interface))
         pg = Program(idl, program_id)
-        
+
         return pg
 
     def get_deploy_transaction(  # pylint: disable=arguments-differ
@@ -734,6 +802,8 @@ class SolanaApi(LedgerApi):
         **kwargs: Any,
     ) -> Optional[JSONLike]:
         """
+
+        **TO BE DONE**
         Get the transaction to deploy the smart contract.
 
         :param contract_interface: the contract interface.
@@ -850,13 +920,15 @@ class SolanaApi(LedgerApi):
         **method_args: Any,
     ) -> Optional[JSONLike]:
         """Call a contract's method
+        **TO BE DONE**
 
         :param contract_instance: the contract to use
         :param method_name: the contract method to call
         :param method_args: the contract call parameters
         :return: the call result
         """
-        method = getattr(contract_instance.functions, method_name)
+        method = contract_instance.methods[method_name]
+        method = getattr(contract_instance.methods, method_name)
         result = method(**method_args).call()
         return result
 
@@ -869,6 +941,7 @@ class SolanaApi(LedgerApi):
         raise_on_try: bool = False,
     ) -> Optional[JSONLike]:
         """Prepare a transaction
+        **TO BE DONE**
 
         :param contract_instance: the contract to use
         :param method_name: the contract method to call
@@ -925,29 +998,50 @@ class SolanaApi(LedgerApi):
 
     def get_transaction_transfer_logs(  # pylint: disable=too-many-arguments,too-many-locals
         self,
-        contract_instance: Any,
         tx_hash: str,
         target_address: Optional[str] = None,
     ) -> Optional[JSONLike]:
         """
         Get all transfer events derived from a transaction.
+        **TO BE DONE**
 
-        :param contract_instance: the contract
         :param tx_hash: the transaction hash
         :param target_address: optional address to filter tranfer events to just those that affect it
         :return: the transfer logs
         """
         try:
-            tx_receipt = self.api.eth.get_transaction_receipt(tx_hash)
+            tx_receipt = self.get_transaction_receipt(tx_hash)
             if tx_receipt is None:
                 raise ValueError  # pragma: nocover
 
         except (Exception, ValueError):  # pragma: nocover
-            return dict(logs=[])
+            return dict()
 
-        transfer_logs = contract_instance.events.Transfer().processReceipt(tx_receipt)
+        keys = tx_receipt['transaction']['message']['accountKeys']
+        if target_address:
+            transfers = {
+                "preBalances": [
+                    {"address": keys[idx], "balance":balance} for idx, balance in enumerate(tx_receipt['meta']['preBalances'])
+                    if keys[idx] == target_address
 
-        return dict(logs=transfer_logs)
+                ],
+                "postBalances": [
+                    {"address": keys[idx], "balance":balance} for idx, balance in enumerate(tx_receipt['meta']['postBalances'])
+                    if keys[idx] == target_address
+
+                ]
+            }
+        else:
+            transfers = {
+                "preBalances": [
+                    {"address": keys[idx], "balance":balance} for idx, balance in enumerate(tx_receipt['meta']['preBalances'])
+                ],
+                "postBalances": [
+                    {"address": keys[idx], "balance":balance} for idx, balance in enumerate(tx_receipt['meta']['postBalances'])
+                ]
+            }
+
+        return transfers
 
 
 class SolanaFaucetApi(FaucetApi):
@@ -956,7 +1050,7 @@ class SolanaFaucetApi(FaucetApi):
     identifier = _SOLANA
     testnet_name = TESTNET_NAME
 
-    def get_wealth(self, address: Address, amount:int, url: Optional[str] = None) -> None:
+    def get_wealth(self, address: Address, amount: int, url: Optional[str] = None) -> None:
         """
         Get wealth from the faucet for the provided address.
 
@@ -964,14 +1058,14 @@ class SolanaFaucetApi(FaucetApi):
         :param url: the url
         """
 
-        return self._try_get_wealth(address,amount, url)
+        return self._try_get_wealth(address, amount, url)
 
     @ staticmethod
     @ try_decorator(
         "An error occured while attempting to generate wealth:\n{}",
         logger_method="error",
     )
-    def _try_get_wealth(address: Address,amount:int, url: Optional[str] = None) -> str or None:
+    def _try_get_wealth(address: Address, amount: int, url: Optional[str] = None) -> str or None:
         """
         Get wealth from the faucet for the provided address.
 
@@ -985,7 +1079,7 @@ class SolanaFaucetApi(FaucetApi):
         response = None
         try:
             resp = solana_client.request_airdrop(
-                PublicKey(address), amount)
+                address, amount)
         except Exception as e:
             msg = e
             pass

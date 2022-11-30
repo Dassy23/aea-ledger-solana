@@ -38,7 +38,6 @@ from aea_ledger_solana import (
     SolanaCrypto,
     SolanaFaucetApi,
     LruLockWrapper,
-    # requests,
 )
 from solana.transaction import Transaction
 from solana.publickey import PublicKey
@@ -49,10 +48,7 @@ from web3._utils.request import _session_cache as session_cache
 from aea.common import JSONLike
 from aea.crypto.helpers import DecryptError, KeyIsIncorrect
 
-from tests.conftest import  MAX_FLAKY_RERUNS, ROOT_DIR, SOLANA_PRIVATE_KEY_FILE_1,AIRDROP_AMOUNT
-
-
-
+from tests.conftest import MAX_FLAKY_RERUNS, ROOT_DIR, SOLANA_PRIVATE_KEY_FILE_1, AIRDROP_AMOUNT
 
 
 def test_creation():
@@ -63,25 +59,11 @@ def test_creation():
     ), "Managed to load the sol private key"
 
 
-# def test_initialization():
-#     """Test the initialisation of the variables."""
-#     account = EthereumCrypto()
-#     assert account.entity is not None, "The property must return the account."
-#     assert (
-#         account.address is not None and type(account.address) == str
-#     ), "After creation the display address must not be None"
-#     assert (
-#         account.public_key is not None and type(account.public_key) == str
-#     ), "After creation the public key must no be None"
-#     assert account.entity is not None, "After creation the entity must no be None"
-
-
 def test_derive_address():
     """Test the get_address_from_public_key method"""
     account = SolanaCrypto()
     address = SolanaApi.get_address_from_public_key(account.public_key)
     assert account.address == address, "Address derivation incorrect"
-
 
 
 # def test_sign_and_recover_message():
@@ -130,7 +112,7 @@ def test_load_contract_interface_from_program_id():
         program_address="ZETAxsqBRek56DhiGXrn75yj2NHU3aYUnxvHXpkf3aD", rpc_api="https://api.mainnet-beta.solana.com")
 
     assert "name" in contract_interface, "idl has a name"
-    
+
 
 def _wait_get_receipt(
     solana_api: SolanaApi, transaction_digest: str
@@ -156,27 +138,27 @@ def _wait_get_receipt(
 def _construct_and_settle_tx(
     solana_api: SolanaApi,
     account1: SolanaCrypto,
-    account2:SolanaCrypto,
+    account2: SolanaCrypto,
     tx_params: dict,
 ) -> Tuple[str, JSONLike, bool]:
     """Construct and settle a transaction."""
     transfer_transaction = solana_api.get_transfer_transaction(**tx_params)
-    
+
     assert (
         isinstance(transfer_transaction, Transaction)
     ), "Incorrect transfer_transaction constructed."
-    
+
     nonce = solana_api.generate_tx_nonce(solana_api)
-    
-    if tx_params['unfunded_account']:    
+
+    if tx_params['unfunded_account']:
         signers = [account2]
     else:
         signers = []
-        
+
     signed_transaction = account1.sign_transaction(
         transfer_transaction, nonce, signers
     )
-    
+
     assert (
         isinstance(signed_transaction, Transaction)
     ), "Incorrect signed_transaction constructed."
@@ -201,16 +183,15 @@ def test_unfunded_transfer_transaction():
     account1 = SolanaCrypto(private_key_path=SOLANA_PRIVATE_KEY_FILE_1)
     account2 = SolanaCrypto()
 
-
     solana_api = SolanaApi()
 
-    balance1 = solana_api.get_balance(account1.address)
-    balance2 = solana_api.get_balance(account2.address)
-    
+    balance1 = solana_api.get_balance(account1.public_key)
+    balance2 = solana_api.get_balance(account2.public_key)
+
     AMOUNT = 1232323
     tx_params = {
-        "sender_address": account1.address,
-        "destination_address": account2.address,
+        "sender_address": account1.public_key,
+        "destination_address": account2.public_key,
         "amount": AMOUNT,
         "unfunded_account": True,
     }
@@ -220,7 +201,7 @@ def test_unfunded_transfer_transaction():
         account1,
         account2,
         tx_params,
-        
+
     )
     assert is_settled, "Failed to verify tx!"
 
@@ -228,9 +209,10 @@ def test_unfunded_transfer_transaction():
 
     assert tx['blockTime'] == transaction_receipt['blockTime'], "Should be same"
 
-    balance3 = solana_api.get_balance(account2.address)
+    balance3 = solana_api.get_balance(account2.public_key)
 
     assert AMOUNT == balance3, "Should be the same balance"
+
 
 @pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
 @pytest.mark.integration
@@ -240,19 +222,18 @@ def test_funded_transfer_transaction():
     account1 = SolanaCrypto(private_key_path=SOLANA_PRIVATE_KEY_FILE_1)
     account2 = SolanaCrypto()
 
-
     solana_api = SolanaApi()
     solana_faucet_api = SolanaFaucetApi()
 
-    solana_faucet_api.get_wealth(account2.address, AIRDROP_AMOUNT)
+    solana_faucet_api.get_wealth(account2.public_key, AIRDROP_AMOUNT)
 
-    balance1 = solana_api.get_balance(account1.address)
-    
-    balance2 = solana_api.get_balance(account2.address)
+    balance1 = solana_api.get_balance(account1.public_key)
+
+    balance2 = solana_api.get_balance(account2.public_key)
     counter = 0
     flag = True
     while flag == True and balance2 == 0:
-        balance2 = solana_api.get_balance(account2.address)
+        balance2 = solana_api.get_balance(account2.public_key)
         if balance2 != 0:
             flag = False
         counter += 1
@@ -262,8 +243,8 @@ def test_funded_transfer_transaction():
 
     AMOUNT = 2222
     tx_params = {
-        "sender_address": account1.address,
-        "destination_address": account2.address,
+        "sender_address": account1.public_key,
+        "destination_address": account2.public_key,
         "amount": AMOUNT,
         "unfunded_account": False,
     }
@@ -273,7 +254,7 @@ def test_funded_transfer_transaction():
         account1,
         account2,
         tx_params,
-        
+
     )
     assert is_settled, "Failed to verify tx!"
 
@@ -281,7 +262,7 @@ def test_funded_transfer_transaction():
 
     assert tx['blockTime'] == transaction_receipt['blockTime'], "Should be same"
 
-    balance3 = solana_api.get_balance(account2.address)
+    balance3 = solana_api.get_balance(account2.public_key)
 
     assert AMOUNT+AIRDROP_AMOUNT == balance3, "Should be the same balance"
 
@@ -296,9 +277,8 @@ def test_get_sol_balance(caplog):
         sc = SolanaCrypto(private_key_path=SOLANA_PRIVATE_KEY_FILE_1)
         sa = SolanaApi()
 
-        balance = sa.get_balance(sc.address)
+        balance = sa.get_balance(sc.public_key)
         assert isinstance(balance, int)
-
 
 
 @pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
@@ -310,7 +290,7 @@ def test_state_from_address():
 
     solana_api = SolanaApi()
     account_state = solana_api.get_state(account1.address)
-    
+
     assert ("lamport" and "data" and "owner" and "rentEpoch") in account_state, "State not in correct format"
 
 
@@ -324,10 +304,13 @@ def test_get_tx(caplog):
         sc = SolanaCrypto(private_key_path=SOLANA_PRIVATE_KEY_FILE_1)
         solana_api = SolanaApi()
         tx_signature = solana_faucet_api.get_wealth(
-            sc.address,AIRDROP_AMOUNT, "http://127.0.0.1:8899/")
+            sc.address, AIRDROP_AMOUNT, "http://127.0.0.1:8899/")
 
         tx, settled = _wait_get_receipt(solana_api, tx_signature)
         assert settled is True
+        contract_addresses = solana_api.get_contract_address(tx)
+        assert contract_addresses[0] == '11111111111111111111111111111111'
+
 
 @pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
 @pytest.mark.integration
@@ -338,15 +321,14 @@ def test_encrypt_decrypt_privatekey(caplog):
         sc = SolanaCrypto(private_key_path=SOLANA_PRIVATE_KEY_FILE_1)
         privKey = sc.private_key
 
-      
         encrypted = sc.encrypt("test123456788")
-        
+
         decrypted = sc.decrypt(encrypted, "test123456788")
         assert privKey == decrypted, "Private keys match"
-        
+
         # decrypted = sc.decrypt(encrypted, "test1234567")
         # assert privKey != decrypted, "Private keys dont match"
-    
+
 
 @pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
 @pytest.mark.integration
@@ -363,24 +345,24 @@ def test_get_wealth(caplog):
         assert tx_signature is not None
 
 
-@pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
-@pytest.mark.integration
-@pytest.mark.ledger
-def test_deploy_program():
-    """Test the deploy program method."""
-    program_work_dir_path = Path(ROOT_DIR, "tests", "data",
-                "spl-token-faucet")
-    byte_code_path = Path(ROOT_DIR, "tests", "data",
-                "spl-token-faucet", "target", "deploy", "spl_token_faucet.so")
-    keypair_path = Path(ROOT_DIR, "tests", "data",
-                "spl-token-faucet", "target", "deploy", "spl_token_faucet-keypair.json")
-    anchor_version="0.18.0"
-    
-    p1 = subprocess.run(f'avm use {anchor_version}',cwd=program_work_dir_path)
-    
-    interface = {"abi": [], "bytecode": b""}
-    max_priority_fee_per_gas = 1000000000
-    max_fee_per_gas = 1000000000
+# @pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
+# @pytest.mark.integration
+# @pytest.mark.ledger
+# def test_deploy_program():
+#     """Test the deploy program method."""
+#     program_work_dir_path = Path(ROOT_DIR, "tests", "data",
+#                 "spl-token-faucet")
+#     byte_code_path = Path(ROOT_DIR, "tests", "data",
+#                 "spl-token-faucet", "target", "deploy", "spl_token_faucet.so")
+#     keypair_path = Path(ROOT_DIR, "tests", "data",
+#                 "spl-token-faucet", "target", "deploy", "spl_token_faucet-keypair.json")
+#     anchor_version="0.18.0"
+
+#     p1 = subprocess.run(f'avm use {anchor_version}',cwd=program_work_dir_path)
+
+#     interface = {"abi": [], "bytecode": b""}
+#     max_priority_fee_per_gas = 1000000000
+#     max_fee_per_gas = 1000000000
 
 
 def test_load_contract_interface():
@@ -396,12 +378,16 @@ def test_load_contract_instance():
     """Test the load_contract_interface method."""
     path = Path(ROOT_DIR, "tests", "data",
                 "dummy_contract", "build", "idl.json")
-    result = SolanaApi.load_contract_interface(path)
+    sa = SolanaApi()
+    result = sa.load_contract_interface(path)
     pid = "ZETAxsqBRek56DhiGXrn75yj2NHU3aYUnxvHXpkf3aD"
     instance = SolanaApi.get_contract_instance(SolanaApi,
                                                contract_interface=result, contract_address=pid)
 
     assert hasattr(instance, 'coder')
+
+    contract_method_ix = sa.contract_method_call(
+        instance, "initialize_zeta_group")
 
 
 # def test_ethereum_api_get_deploy_transaction(ethereum_testnet_config):
@@ -576,42 +562,39 @@ def test_session_cache():
 #             assert result == dict(nonce=0, value=0, gas=0)
 
 
-# def test_get_transaction_transfer_logs(ethereum_testnet_config):
-#     """Test EthereumApi.get_transaction_transfer_logs."""
-#     eth_api = EthereumApi(**ethereum_testnet_config)
+def test_get_transaction_transfer_logs():
+    """Test SolanaApi.get_transaction_transfer_logs."""
+    account1 = SolanaCrypto(private_key_path=SOLANA_PRIVATE_KEY_FILE_1)
+    account2 = SolanaCrypto()
 
-#     dummy_receipt = {"logs": [{"topics": ["0x0", "0x0"]}]}
+    solana_api = SolanaApi()
 
-#     with mock.patch(
-#         "web3.eth.Eth.get_transaction_receipt",
-#         return_value=dummy_receipt,
-#     ):
-#         contract_instance = MagicMock()
-#         contract_instance.events.Transfer().processReceipt.return_value = {"log": "log"}
+    balance1 = solana_api.get_balance(account1.public_key)
+    balance2 = solana_api.get_balance(account2.public_key)
 
-#         result = eth_api.get_transaction_transfer_logs(
-#             contract_instance=contract_instance,
-#             tx_hash="dummy_hash",
-#         )
+    AMOUNT = 1232323
+    tx_params = {
+        "sender_address": account1.public_key,
+        "destination_address": account2.public_key,
+        "amount": AMOUNT,
+        "unfunded_account": True,
+    }
 
-#         assert result == dict(logs={"log": "log"})
+    transaction_digest, transaction_receipt, is_settled = _construct_and_settle_tx(
+        solana_api,
+        account1,
+        account2,
+        tx_params,
 
+    )
+    assert is_settled, "Failed to verify tx!"
 
-# def test_get_transaction_transfer_logs_raise(ethereum_testnet_config):
-#     """Test EthereumApi.get_transaction_transfer_logs."""
-#     eth_api = EthereumApi(**ethereum_testnet_config)
+    tx = solana_api.get_transaction(transaction_digest)
 
-#     with mock.patch(
-#         "web3.eth.Eth.get_transaction_receipt",
-#         return_value=None,
-#     ):
-#         contract_instance = MagicMock()
-#         contract_instance.events.Transfer().processReceipt.return_value = {"log": "log"}
+    assert tx['blockTime'] == transaction_receipt['blockTime'], "Should be same"
 
-#         result = eth_api.get_transaction_transfer_logs(
-#             contract_instance=contract_instance,
-#             tx_hash="dummy_hash",
-#         )
+    logs = solana_api.get_transaction_transfer_logs(transaction_digest)
+    logs_limited = solana_api.get_transaction_transfer_logs(
+        transaction_digest, account1.address)
 
-#         assert result == dict(logs=[])
-
+    assert True is True
