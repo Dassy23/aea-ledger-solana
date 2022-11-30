@@ -1003,7 +1003,6 @@ class SolanaApi(LedgerApi):
     ) -> Optional[JSONLike]:
         """
         Get all transfer events derived from a transaction.
-        **TO BE DONE**
 
         :param tx_hash: the transaction hash
         :param target_address: optional address to filter tranfer events to just those that affect it

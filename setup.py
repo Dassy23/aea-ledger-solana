@@ -41,7 +41,7 @@ setup(
         "open-aea>=1.0.0, <2.0.0",
         "ipfshttpclient==0.8.0a2",
         "solana==0.28.0",
-        "solders==0.9.3",
+        "solders==0.10.0",
         "anchorpy==0.13.1",
         "anchorpy-core==0.1.2",
     ],

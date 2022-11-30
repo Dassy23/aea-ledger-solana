@@ -304,7 +304,7 @@ def test_get_tx(caplog):
         sc = SolanaCrypto(private_key_path=SOLANA_PRIVATE_KEY_FILE_1)
         solana_api = SolanaApi()
         tx_signature = solana_faucet_api.get_wealth(
-            sc.address, AIRDROP_AMOUNT, "http://127.0.0.1:8899/")
+            sc.public_key, AIRDROP_AMOUNT, "http://127.0.0.1:8899/")
 
         tx, settled = _wait_get_receipt(solana_api, tx_signature)
         assert settled is True
@@ -340,7 +340,7 @@ def test_get_wealth(caplog):
         sc = SolanaCrypto()
 
         tx_signature = solana_faucet_api.get_wealth(
-            sc.address, AIRDROP_AMOUNT, "http://127.0.0.1:8899/")
+            sc.public_key, AIRDROP_AMOUNT, "http://127.0.0.1:8899/")
 
         assert tx_signature is not None
 
@@ -385,9 +385,6 @@ def test_load_contract_instance():
                                                contract_interface=result, contract_address=pid)
 
     assert hasattr(instance, 'coder')
-
-    contract_method_ix = sa.contract_method_call(
-        instance, "initialize_zeta_group")
 
 
 # def test_ethereum_api_get_deploy_transaction(ethereum_testnet_config):
