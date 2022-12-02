@@ -288,148 +288,8 @@ class SolanaCrypto(Crypto[Keypair]):
         return dec_mac
 
 
-class SolanaApi(LedgerApi):
-    """Class to interact with the Solana Web3 APIs."""
-
-    identifier = _SOLANA
-
-    def __init__(self, **kwargs: Any):
-        """
-        Initialize the Solana ledger APIs.
-
-        :param kwargs: keyword arguments
-        """
-        self._api = Client(
-            endpoint=kwargs.pop("address", DEFAULT_ADDRESS)
-        )
-        self._chain_id = kwargs.pop("chain_id", DEFAULT_CHAIN_ID)
-
-    @property
-    def api(self) -> Web3:
-        """Get the underlying API object."""
-        return self._api
-
-    def update_with_gas_estimate(self, transaction: JSONLike) -> JSONLike:
-        """
-        **DO NOT NEED**
-        Attempts to update the transaction with a gas estimate
-
-        :param transaction: the transaction
-        :return: the updated transaction
-        """
-        # gas_estimate = self._try_get_gas_estimate(transaction)
-        # if gas_estimate is not None:
-        #     transaction["gas"] = gas_estimate
-        return transaction
-
-    def get_balance(
-        self, address: Address, raise_on_try: bool = False
-    ) -> Optional[int]:
-        """Get the balance of a given account."""
-        return self._try_get_balance(address, raise_on_try=raise_on_try)
-
-    @try_decorator("Unable to retrieve balance: {}", logger_method="warning")
-    def _try_get_balance(self, address: Address, **_kwargs: Any) -> Optional[int]:
-        """Get the balance of a given account."""
-        response = self._api.get_balance(address)  # pylint: disable=no-member
-        return response.value
-
-    # def get_token_balances(
-    #     self, address: Address, raise_on_try: bool = False
-    # ) -> list:
-    #     """Get the balance of a given account."""
-    #     return self._try_get_token_balances(address, raise_on_try=raise_on_try)
-
-    # @try_decorator("Unable to retrieve balance: {}", logger_method="warning")
-    # def _try_get_token_balances(self, address: Address, **_kwargs: Any) -> list:
-    #     """Get the token balances of a given owner."""
-    #     txOpts = types.TokenAccountOpts(program_id=PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA'))
-    #     response = self._api.get_token_accounts_by_owner_json_parsed(PublicKey(address),opts=txOpts)  # pylint: disable=no-member
-    #     balances = []
-    #     for key in response.value:
-    #         balance = json.loads(key.account.data.parsed)
-    #         balances.append(
-    #             {
-    #                 "mint": balance['info']['mint'],
-    #                 "balance":balance['info']['tokenAmount']['uiAmount']
-    #             }
-    #             )
-
-    #     return balances
-
-    def get_state(
-        self, address: str, *args: Any, raise_on_try: bool = False, **kwargs: Any
-    ) -> Optional[JSONLike]:
-        """Call a specified function on the ledger API."""
-        response = self._try_get_state(
-            address, *args, raise_on_try=raise_on_try, **kwargs
-        )
-        return response
-
-    @try_decorator("Unable to get state: {}", logger_method="warning")
-    def _try_get_state(  # pylint: disable=unused-argument
-        self, address: str, *args: Any, **kwargs: Any
-    ) -> Optional[JSONLike]:
-        """Try to call a function on the ledger API."""
-
-        if "raise_on_try" in kwargs:
-            logging.info(
-                f"popping `raise_on_try` from {self.__class__.__name__}.get_state kwargs"
-            )
-            kwargs.pop("raise_on_try")
-
-        account_object = self._api.get_account_info_json_parsed(
-            PublicKey(address))
-        account_info_val = json.loads(account_object.value.to_json())
-        return account_info_val
-
-    @classmethod
-    def recover_message(
-        cls, message: bytes, signature: str, is_deprecated_mode: bool = False
-    ) -> Tuple[Address, ...]:
-        """
-        **TO BE DONE**
-        Recover the addresses from the hash.
-
-        :param message: the message we expect
-        :param signature: the transaction signature
-        :param is_deprecated_mode: if the deprecated signing was used
-        :return: the recovered addresses
-        """
-
-        try:
-            pass
-            # VerifyKey(bytes(self.address)).verify(msg.message, msg.signature)
-        except:
-            return False
-        return True
-        return "(address,)"
-
-    @classmethod
-    def recover_public_keys_from_message(
-        cls, message: bytes, signature: str, is_deprecated_mode: bool = False
-    ) -> Tuple[str, ...]:
-        """
-        **TO BE DONE**
-        Get the public key used to produce the `signature` of the `message`
-
-        :param message: raw bytes used to produce signature
-        :param signature: signature of the message
-        :param is_deprecated_mode: if the deprecated signing was used
-        :return: the recovered public keys
-        """
-        # if not is_deprecated_mode:
-        #     signable_message = encode_defunct(primitive=message)
-        #     message = _hash_eip191_message(signable_message)
-        # hash_bytes = HexBytes(message)
-        # # code taken from https://github.com/ethereum/eth-account/blob/master/eth_account/account.py#L428
-        # if len(hash_bytes) != 32:  # pragma: nocover
-        #     raise ValueError("The message hash must be exactly 32-bytes")
-        # signature_bytes = HexBytes(signature)
-        # signature_bytes_standard = to_standard_signature_bytes(signature_bytes)
-        # signature_obj = keys.Signature(signature_bytes=signature_bytes_standard)
-        # pubkey = signature_obj.recover_public_key_from_msg_hash(hash_bytes)
-        return "(str(pubkey),)"
+class SolanaHelper(Helper):
+    """Helper class usable as Mixin for SolanaApi or as standalone class."""
 
     @classmethod
     def load_contract_interface(cls,
@@ -526,6 +386,70 @@ class SolanaApi(LedgerApi):
         digest = Web3.keccak(message).hex()
         return digest
 
+    @classmethod
+    def recover_message(
+        cls, message: bytes, signature: str, is_deprecated_mode: bool = False
+    ) -> Tuple[Address, ...]:
+        """
+        **TO BE DONE**
+        Recover the addresses from the hash.
+
+        :param message: the message we expect
+        :param signature: the transaction signature
+        :param is_deprecated_mode: if the deprecated signing was used
+        :return: the recovered addresses
+        """
+
+        try:
+            pass
+            # VerifyKey(bytes(self.address)).verify(msg.message, msg.signature)
+        except:
+            return False
+        return True
+        return "(address,)"
+
+    @classmethod
+    def recover_public_keys_from_message(
+        cls, message: bytes, signature: str, is_deprecated_mode: bool = False
+    ) -> Tuple[str, ...]:
+        """
+        **TO BE DONE**
+        Get the public key used to produce the `signature` of the `message`
+
+        :param message: raw bytes used to produce signature
+        :param signature: signature of the message
+        :param is_deprecated_mode: if the deprecated signing was used
+        :return: the recovered public keys
+        """
+        # if not is_deprecated_mode:
+        #     signable_message = encode_defunct(primitive=message)
+        #     message = _hash_eip191_message(signable_message)
+        # hash_bytes = HexBytes(message)
+        # # code taken from https://github.com/ethereum/eth-account/blob/master/eth_account/account.py#L428
+        # if len(hash_bytes) != 32:  # pragma: nocover
+        #     raise ValueError("The message hash must be exactly 32-bytes")
+        # signature_bytes = HexBytes(signature)
+        # signature_bytes_standard = to_standard_signature_bytes(signature_bytes)
+        # signature_obj = keys.Signature(signature_bytes=signature_bytes_standard)
+        # pubkey = signature_obj.recover_public_key_from_msg_hash(hash_bytes)
+        return "(str(pubkey),)"
+
+    @ staticmethod
+    def generate_tx_nonce(self) -> str:
+        """
+        Generate a unique hash to distinguish transactions with the same terms.
+
+        :param self: .
+        :param client: the address of the client.
+        :return: return the hash in hex.
+        """
+
+        result = self._api.get_latest_blockhash()
+        blockhash_json = result.value.to_json()
+        blockhash = json.loads(blockhash_json)
+        hash = blockhash['blockhash']
+        return hash
+
     @ staticmethod
     def get_contract_address(tx_receipt: JSONLike) -> Optional[list[str]]:
         """
@@ -553,21 +477,113 @@ class SolanaApi(LedgerApi):
 
         return public_key.to_base58().decode()
 
-    @ staticmethod
-    def generate_tx_nonce(self) -> str:
+    @ classmethod
+    def is_valid_address(cls, address: Address) -> bool:
         """
-        Generate a unique hash to distinguish transactions with the same terms.
+        Check if the address is valid.
+        **TO BE DONE**
 
-        :param self: .
-        :param client: the address of the client.
-        :return: return the hash in hex.
+        :param address: the address to validate
+        :return: whether the address is valid
         """
+        # address = self.get
+        return Web3.isAddress(address)
 
-        result = self._api.get_latest_blockhash()
-        blockhash_json = result.value.to_json()
-        blockhash = json.loads(blockhash_json)
-        hash = blockhash['blockhash']
-        return hash
+
+class SolanaApi(LedgerApi, SolanaHelper):
+    """Class to interact with the Solana Web3 APIs."""
+
+    identifier = _SOLANA
+
+    def __init__(self, **kwargs: Any):
+        """
+        Initialize the Solana ledger APIs.
+
+        :param kwargs: keyword arguments
+        """
+        self._api = Client(
+            endpoint=kwargs.pop("address", DEFAULT_ADDRESS)
+        )
+        self._chain_id = kwargs.pop("chain_id", DEFAULT_CHAIN_ID)
+
+    @property
+    def api(self) -> Web3:
+        """Get the underlying API object."""
+        return self._api
+
+    def update_with_gas_estimate(self, transaction: JSONLike) -> JSONLike:
+        """
+        **DO NOT NEED**
+        Attempts to update the transaction with a gas estimate
+
+        :param transaction: the transaction
+        :return: the updated transaction
+        """
+        # gas_estimate = self._try_get_gas_estimate(transaction)
+        # if gas_estimate is not None:
+        #     transaction["gas"] = gas_estimate
+        return transaction
+
+    def get_balance(
+        self, address: Address, raise_on_try: bool = False
+    ) -> Optional[int]:
+        """Get the balance of a given account."""
+        return self._try_get_balance(address, raise_on_try=raise_on_try)
+
+    @try_decorator("Unable to retrieve balance: {}", logger_method="warning")
+    def _try_get_balance(self, address: Address, **_kwargs: Any) -> Optional[int]:
+        """Get the balance of a given account."""
+        response = self._api.get_balance(address)  # pylint: disable=no-member
+        return response.value
+
+    # def get_token_balances(
+    #     self, address: Address, raise_on_try: bool = False
+    # ) -> list:
+    #     """Get the balance of a given account."""
+    #     return self._try_get_token_balances(address, raise_on_try=raise_on_try)
+
+    # @try_decorator("Unable to retrieve balance: {}", logger_method="warning")
+    # def _try_get_token_balances(self, address: Address, **_kwargs: Any) -> list:
+    #     """Get the token balances of a given owner."""
+    #     txOpts = types.TokenAccountOpts(program_id=PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA'))
+    #     response = self._api.get_token_accounts_by_owner_json_parsed(PublicKey(address),opts=txOpts)  # pylint: disable=no-member
+    #     balances = []
+    #     for key in response.value:
+    #         balance = json.loads(key.account.data.parsed)
+    #         balances.append(
+    #             {
+    #                 "mint": balance['info']['mint'],
+    #                 "balance":balance['info']['tokenAmount']['uiAmount']
+    #             }
+    #             )
+
+    #     return balances
+
+    def get_state(
+        self, address: str, *args: Any, raise_on_try: bool = False, **kwargs: Any
+    ) -> Optional[JSONLike]:
+        """Call a specified function on the ledger API."""
+        response = self._try_get_state(
+            address, *args, raise_on_try=raise_on_try, **kwargs
+        )
+        return response
+
+    @try_decorator("Unable to get state: {}", logger_method="warning")
+    def _try_get_state(  # pylint: disable=unused-argument
+        self, address: str, *args: Any, **kwargs: Any
+    ) -> Optional[JSONLike]:
+        """Try to call a function on the ledger API."""
+
+        if "raise_on_try" in kwargs:
+            logging.info(
+                f"popping `raise_on_try` from {self.__class__.__name__}.get_state kwargs"
+            )
+            kwargs.pop("raise_on_try")
+
+        account_object = self._api.get_account_info_json_parsed(
+            PublicKey(address))
+        account_info_val = json.loads(account_object.value.to_json())
+        return account_info_val
 
     def get_transfer_transaction(  # pylint: disable=arguments-differ
         self,
@@ -727,56 +743,6 @@ class SolanaApi(LedgerApi):
         # pylint: disable=no-member
         return json.loads(tx.value.to_json())
 
-    # def get_create_mint_transaction(
-    #     self,
-    #     payer: Keypair,
-    #     mint_authority: PublicKey,
-    #     decimals: int,
-    #     program_id: PublicKey,
-    #     freeze_authority: Optional[PublicKey] = None,
-    #     skip_confirmation: bool = False,
-    #     recent_blockhash: Optional[Blockhash] = None,
-
-    #     raise_on_try: bool = False,
-    # ) -> Optional[JSONLike]:
-    #     """
-    #     Get the transaction.
-
-    #     :param tx_digest: the transaction digest.
-    #     :param _kwargs: the keyword arguments. Possible kwargs are:
-    #         `raise_on_try`: bool flag specifying whether the method will raise or log on error (used by `try_decorator`)
-    #     :return: the tx, if found
-    #     """
-    #     resp = self._api.get_minimum_balance_for_rent_exemption(ACCOUNT_LAYOUT.sizeof())
-    #     balance_needed = resp.value
-    #     recent_blockhash = self.generate_tx_nonce(self)
-
-    #     txn = Transaction()
-    #     txn.add(
-    #         sp.create_account(
-    #             sp.CreateAccountParams(
-    #                 from_pubkey=payer.public_key,
-    #                 new_account_pubkey=mint_authority,
-    #                 lamports=balance_needed,
-    #                 space=MINT_LAYOUT.sizeof(),
-    #                 program_id=program_id,
-    #             )
-    #         )
-    #     )
-    #     txn.add(
-    #         spl_token.initialize_mint(
-    #             spl_token.InitializeMintParams(
-    #                 program_id=program_id,
-    #                 mint=mint_authority,
-    #                 decimals=decimals,
-    #                 mint_authority=mint_authority,
-    #                 freeze_authority=freeze_authority,
-    #             )
-    #         )
-    #     )
-    #     txn.recent_blockhash = recent_blockhash
-    #     return txn
-
     def get_contract_instance(
         self, contract_interface: Dict[str, str], contract_address: str
     ) -> Any:
@@ -901,16 +867,6 @@ class SolanaApi(LedgerApi):
     def _try_get_max_priority_fee(self, **_kwargs: Any) -> str:
         """Try get the gas estimate."""
         return cast(str, self.api.eth.max_priority_fee)
-
-    @ classmethod
-    def is_valid_address(cls, address: Address) -> bool:
-        """
-        Check if the address is valid.
-
-        :param address: the address to validate
-        :return: whether the address is valid
-        """
-        return Web3.isAddress(address)
 
     @ classmethod
     def contract_method_call(

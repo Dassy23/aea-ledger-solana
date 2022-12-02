@@ -32,16 +32,16 @@ setup(
     description="Python package wrapping the public and private key cryptography and ledger api of solana.",
     packages=find_packages(include=["aea_ledger_solana*"]),
     package_data={
-        "aea_ledger_solana": [
-            "py.typed",
-            "test_tools/data/*",
-        ]
+        # "aea_ledger_solana": [
+        #     "py.typed",
+        #     "test_tools/data/*",
+        # ]
     },
     install_requires=[
         "open-aea>=1.0.0, <2.0.0",
         "ipfshttpclient==0.8.0a2",
-        "solana==0.28.0",
-        "solders==0.10.0",
+        "solana==0.27.2",
+        "solders==0.9.3",
         "anchorpy==0.13.1",
         "anchorpy-core==0.1.2",
     ],
