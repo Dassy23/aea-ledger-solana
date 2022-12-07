@@ -47,9 +47,9 @@ setup(
     ],
     tests_require=["pytest"],
     entry_points={
-        "aea.cryptos": ["solana = aea_ledger_solana:solanaCrypto"],
-        "aea.ledger_apis": ["solana = aea_ledger_solana:solanaApi"],
-        "aea.faucet_apis": ["solana = aea_ledger_solana:solanaFaucetApi"],
+        "aea.cryptos": ["solana = aea_ledger_solana:SolanaCrypto"],
+        "aea.ledger_apis": ["solana = aea_ledger_solana:SolanaApi"],
+        "aea.faucet_apis": ["solana = aea_ledger_solana:SolanaFaucetApi"],
     },
     classifiers=[
         "Environment :: Console",

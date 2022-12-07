@@ -42,16 +42,21 @@ CUR_PATH = os.path.dirname(inspect.getfile(
 ROOT_DIR = os.path.join(CUR_PATH, "..")
 MAX_FLAKY_RERUNS = 3
 AIRDROP_AMOUNT = 10_000_000_000
-SOLANA_PRIVATE_KEY_FILE_1 = "./solana_private_key.txt"
 
 SOLANA = SolanaCrypto.identifier
 
 SOLANA_PRIVATE_KEY_FILE = PRIVATE_KEY_PATH_SCHEMA.format(SOLANA)
+
 SOLANA_PRIVATE_KEY_PATH = os.path.join(
     ROOT_DIR, "tests", "data", SOLANA_PRIVATE_KEY_FILE
 )
 
-SOLANA_DEFAULT_ADDRESS = "http://127.0.0.1:8545"
+SOLANA_PRIVATE_KEY_FILE_1 = os.path.join(
+    ROOT_DIR, "tests", "data", SOLANA_PRIVATE_KEY_FILE[:-4]+"_1"+".txt"
+)
+
+
+SOLANA_DEFAULT_ADDRESS = "http://127.0.0.1:8899"
 SOLANA_DEFAULT_CHAIN_ID = 420
 SOLANA_DEFAULT_CURRENCY_DENOM = "lamports"
 SOLANA_TESTNET_CONFIG = {"address": SOLANA_DEFAULT_ADDRESS}

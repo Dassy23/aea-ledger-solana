@@ -48,14 +48,14 @@ from web3._utils.request import _session_cache as session_cache
 from aea.common import JSONLike
 from aea.crypto.helpers import DecryptError, KeyIsIncorrect
 
-from tests.conftest import MAX_FLAKY_RERUNS, ROOT_DIR, SOLANA_PRIVATE_KEY_FILE_1, AIRDROP_AMOUNT
+from tests.conftest import MAX_FLAKY_RERUNS, ROOT_DIR, SOLANA_PRIVATE_KEY_FILE, AIRDROP_AMOUNT
 
 
 def test_creation():
     """Test the creation of the crypto_objects."""
-    assert SolanaCrypto(), "Managed to initialise the eth_account"
+    assert SolanaCrypto(), "Managed to initialise the solana_keypair"
     assert SolanaCrypto(
-        SOLANA_PRIVATE_KEY_FILE_1
+        SOLANA_PRIVATE_KEY_FILE
     ), "Managed to load the sol private key"
 
 
@@ -180,7 +180,7 @@ def _construct_and_settle_tx(
 @pytest.mark.ledger
 def test_unfunded_transfer_transaction():
     """Test the construction, signing and submitting of a transfer transaction."""
-    account1 = SolanaCrypto(private_key_path=SOLANA_PRIVATE_KEY_FILE_1)
+    account1 = SolanaCrypto(private_key_path=SOLANA_PRIVATE_KEY_FILE)
     account2 = SolanaCrypto()
 
     solana_api = SolanaApi()
@@ -219,11 +219,12 @@ def test_unfunded_transfer_transaction():
 @pytest.mark.ledger
 def test_funded_transfer_transaction():
     """Test the construction, signing and submitting of a transfer transaction."""
-    account1 = SolanaCrypto(private_key_path=SOLANA_PRIVATE_KEY_FILE_1)
+    account1 = SolanaCrypto(private_key_path=SOLANA_PRIVATE_KEY_FILE)
     account2 = SolanaCrypto()
 
     solana_api = SolanaApi()
     solana_faucet_api = SolanaFaucetApi()
+    solana_faucet_api.get_wealth(account1.public_key, AIRDROP_AMOUNT*2)
 
     solana_faucet_api.get_wealth(account2.public_key, AIRDROP_AMOUNT)
 
@@ -274,7 +275,7 @@ def test_get_sol_balance(caplog):
     """Test the balance is zero for a new account."""
     with caplog.at_level(logging.DEBUG, logger="aea.crypto.solana._default_logger"):
         # solana_faucet_api = SolanaFaucetApi()
-        sc = SolanaCrypto(private_key_path=SOLANA_PRIVATE_KEY_FILE_1)
+        sc = SolanaCrypto(private_key_path=SOLANA_PRIVATE_KEY_FILE)
         sa = SolanaApi()
 
         balance = sa.get_balance(sc.public_key)
@@ -286,7 +287,7 @@ def test_get_sol_balance(caplog):
 @pytest.mark.ledger
 def test_state_from_address():
     """Test the get_address_from_public_key method"""
-    account1 = SolanaCrypto(private_key_path=SOLANA_PRIVATE_KEY_FILE_1)
+    account1 = SolanaCrypto(private_key_path=SOLANA_PRIVATE_KEY_FILE)
 
     solana_api = SolanaApi()
     account_state = solana_api.get_state(account1.address)
@@ -301,7 +302,7 @@ def test_get_tx(caplog):
     """Test get tx from signature"""
     with caplog.at_level(logging.DEBUG, logger="aea.crypto.solana._default_logger"):
         solana_faucet_api = SolanaFaucetApi()
-        sc = SolanaCrypto(private_key_path=SOLANA_PRIVATE_KEY_FILE_1)
+        sc = SolanaCrypto(private_key_path=SOLANA_PRIVATE_KEY_FILE)
         solana_api = SolanaApi()
         tx_signature = solana_faucet_api.get_wealth(
             sc.public_key, AIRDROP_AMOUNT, "http://127.0.0.1:8899/")
@@ -318,7 +319,7 @@ def test_get_tx(caplog):
 def test_encrypt_decrypt_privatekey(caplog):
     """Test the balance is zero for a new account."""
     with caplog.at_level(logging.DEBUG, logger="aea.crypto.solana._default_logger"):
-        sc = SolanaCrypto(private_key_path=SOLANA_PRIVATE_KEY_FILE_1)
+        sc = SolanaCrypto(private_key_path=SOLANA_PRIVATE_KEY_FILE)
         privKey = sc.private_key
 
         encrypted = sc.encrypt("test123456788")
@@ -561,7 +562,7 @@ def test_session_cache():
 
 def test_get_transaction_transfer_logs():
     """Test SolanaApi.get_transaction_transfer_logs."""
-    account1 = SolanaCrypto(private_key_path=SOLANA_PRIVATE_KEY_FILE_1)
+    account1 = SolanaCrypto(private_key_path=SOLANA_PRIVATE_KEY_FILE)
     account2 = SolanaCrypto()
 
     solana_api = SolanaApi()

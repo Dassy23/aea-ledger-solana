@@ -163,9 +163,8 @@ class SolanaCrypto(Crypto[Keypair]):
         private_key = open(file_name, "r").read()
 
         try:
-            l = literal_eval(private_key)
-            key = Keypair.from_secret_key(bytes(l))
-        except KeyIsIncorrect as e:
+            key = Keypair.from_secret_key(private_key.encode("utf-8"))
+        except Exception as e:
 
             raise KeyIsIncorrect(
                 f"Error on key `{file_name}` load! : Error: {repr(e)} "
@@ -374,7 +373,7 @@ class SolanaHelper(Helper):
         cls, message: bytes, signature: str, is_deprecated_mode: bool = False
     ) -> Tuple[Address, ...]:
         """
-        **TO BE DONE**
+        **TOBEIMPLEMENTED**
         Recover the addresses from the hash.
 
         :param message: the message we expect
@@ -383,20 +382,19 @@ class SolanaHelper(Helper):
         :return: the recovered addresses
         """
 
-        try:
-            pass
-            # VerifyKey(bytes(self.address)).verify(msg.message, msg.signature)
-        except:
-            return False
+        # try:
+        #     pass
+        #     # VerifyKey(bytes(self.address)).verify(msg.message, msg.signature)
+        # except:
+        #     return False
         return True
-        return "(address,)"
 
     @classmethod
     def recover_public_keys_from_message(
         cls, message: bytes, signature: str, is_deprecated_mode: bool = False
     ) -> Tuple[str, ...]:
         """
-        **TO BE DONE**
+        **TOBEIMPLEMENTED**
         Get the public key used to produce the `signature` of the `message`
 
         :param message: raw bytes used to produce signature
@@ -415,7 +413,7 @@ class SolanaHelper(Helper):
         # signature_bytes_standard = to_standard_signature_bytes(signature_bytes)
         # signature_obj = keys.Signature(signature_bytes=signature_bytes_standard)
         # pubkey = signature_obj.recover_public_key_from_msg_hash(hash_bytes)
-        return "(str(pubkey),)"
+        return "TOBEIMPLEMENTED"
 
     @ staticmethod
     def generate_tx_nonce(self) -> str:
@@ -464,13 +462,13 @@ class SolanaHelper(Helper):
     def is_valid_address(cls, address: Address) -> bool:
         """
         Check if the address is valid.
-        **TO BE DONE**
+        **TOBEIMPLEMENTED**
 
         :param address: the address to validate
         :return: whether the address is valid
         """
         # address = self.get
-        return Web3.isAddress(address)
+        return True
 
 
 class SolanaApi(LedgerApi, SolanaHelper):
@@ -752,7 +750,7 @@ class SolanaApi(LedgerApi, SolanaHelper):
     ) -> Optional[JSONLike]:
         """
 
-        **TO BE DONE**
+        **TOBEIMPLEMENTED**
         Get the transaction to deploy the smart contract.
 
         :param contract_interface: the contract interface.
@@ -762,94 +760,7 @@ class SolanaApi(LedgerApi, SolanaHelper):
         :return: the transaction dictionary.
         """
 
-        # value to send to contract (in Wei)
-        value: int = kwargs.pop("value", 0)
-
-        # the gas to be used (in Wei)
-        gas: Optional[int] = kwargs.pop("gas", None)
-
-        # maximum amount you’re willing to pay, inclusive of `baseFeePerGas` and
-        # `maxPriorityFeePerGas`. The difference between `maxFeePerGas` and
-        # `baseFeePerGas + maxPriorityFeePerGas` is refunded  (in Wei).
-        max_fee_per_gas: Optional[int] = kwargs.pop("max_fee_per_gas", None)
-
-        # the part of the fee that goes to the miner (in Wei).
-        max_priority_fee_per_gas: Optional[str] = kwargs.pop(
-            "max_priority_fee_per_gas", None
-        )
-
-        # the gas price (in Wei)
-        gas_price: Optional[str] = kwargs.pop("gas_price", None)
-
-        # the gas price strategy to be used.
-        gas_price_strategy: Optional[str] = kwargs.pop(
-            "gas_price_strategy", None)
-
-        # extra config for gas price strategy.
-        gas_price_strategy_extra_config: Optional[Dict] = kwargs.pop(
-            "gas_price_strategy_extra_config", None
-        )
-
-        transaction: Optional[JSONLike] = None
-        _deployer_address = self.api.toChecksumAddress(deployer_address)
-        nonce = self._try_get_transaction_count(
-            _deployer_address, raise_on_try=raise_on_try
-        )
-        if nonce is None:
-            return transaction
-        instance = self.get_contract_instance(contract_interface)
-        transaction = {
-            "value": value,
-            "nonce": nonce,
-        }
-        if max_fee_per_gas is not None:
-            max_priority_fee_per_gas = (
-                self._try_get_max_priority_fee(raise_on_try=raise_on_try)
-                if max_priority_fee_per_gas is None
-                else max_priority_fee_per_gas
-            )
-            if max_priority_fee_per_gas is None:
-                return None  # pragma: nocover
-            transaction.update(
-                {
-                    "maxFeePerGas": max_fee_per_gas,
-                    "maxPriorityFeePerGas": max_priority_fee_per_gas,
-                }
-            )
-
-        if gas_price is not None:
-            transaction.update({"gasPrice": gas_price})
-
-        if gas_price is None and max_fee_per_gas is None:
-            gas_pricing = self.try_get_gas_pricing(
-                gas_price_strategy,
-                gas_price_strategy_extra_config,
-                raise_on_try=raise_on_try,
-            )
-
-            if gas_pricing is None:
-                return None  # pragma: nocover
-
-            transaction.update(gas_pricing)
-
-        transaction = instance.constructor(
-            **kwargs).buildTransaction(transaction)
-
-        if transaction is None:
-            return None  # pragma: nocover
-        # only 'from' address, don't insert 'to' address!
-        transaction.pop("to", None)
-        transaction.update({"from": _deployer_address})
-        if gas is not None:
-            transaction.update({"gas": gas})
-        if self._is_gas_estimation_enabled:
-            transaction = self.update_with_gas_estimate(transaction)
-        return transaction
-
-    @ try_decorator("Unable to retrieve max_priority_fee: {}", logger_method="warning")
-    def _try_get_max_priority_fee(self, **_kwargs: Any) -> str:
-        """Try get the gas estimate."""
-        return cast(str, self.api.eth.max_priority_fee)
+        return {}
 
     @ classmethod
     def contract_method_call(
@@ -859,17 +770,15 @@ class SolanaApi(LedgerApi, SolanaHelper):
         **method_args: Any,
     ) -> Optional[JSONLike]:
         """Call a contract's method
-        **TO BE DONE**
+        **TOBEIMPLEMENTED**
 
         :param contract_instance: the contract to use
         :param method_name: the contract method to call
         :param method_args: the contract call parameters
         :return: the call result
         """
-        method = contract_instance.methods[method_name]
-        method = getattr(contract_instance.methods, method_name)
-        result = method(**method_args).call()
-        return result
+
+        return {}
 
     def build_transaction(  # pylint: disable=too-many-arguments
         self,
@@ -880,7 +789,7 @@ class SolanaApi(LedgerApi, SolanaHelper):
         raise_on_try: bool = False,
     ) -> Optional[JSONLike]:
         """Prepare a transaction
-        **TO BE DONE**
+        **TOBEIMPLEMENTED**
 
         :param contract_instance: the contract to use
         :param method_name: the contract method to call
@@ -890,50 +799,7 @@ class SolanaApi(LedgerApi, SolanaHelper):
         :return: the transaction
         """
 
-        if method_args is None:
-            raise ValueError("Argument 'method_args' cannot be 'None'.")
-
-        method = getattr(contract_instance.functions, method_name)
-        tx = method(**cast(Dict, method_args))
-
-        if tx_args is None:
-            raise ValueError("Argument 'tx_args' cannot be 'None'.")
-
-        tx_args = cast(Dict, tx_args)
-
-        nonce = self.api.eth.get_transaction_count(tx_args["sender_address"])
-        tx_params = {
-            "nonce": nonce,
-            "value": tx_args["value"] if "value" in tx_args else 0,
-            "gas": 1,  # set this as a placeholder to avoid estimation on buildTransaction()
-        }
-
-        # Parameter camel-casing due to contract api requirements
-        for field in [
-            "gas",
-            "gasPrice",
-            "maxFeePerGas",
-            "maxPriorityFeePerGas",
-        ]:
-            if field in tx_args and tx_args[field] is not None:
-                tx_params[field] = tx_args[field]
-
-        if (
-            "gasPrice" not in tx_params
-            and "maxFeePerGas" not in tx_params
-            and "maxPriorityFeePerGas" not in tx_params
-        ):
-            gas_data = self.try_get_gas_pricing(
-                old_price=tx_args.get("old_price"), raise_on_try=raise_on_try
-            )
-            if gas_data:
-                tx_params.update(gas_data)  # pragma: nocover
-
-        tx = tx.buildTransaction(tx_params)
-        if self._is_gas_estimation_enabled:
-            tx = self.update_with_gas_estimate(tx)
-
-        return tx
+        return {}
 
     def get_transaction_transfer_logs(  # pylint: disable=too-many-arguments,too-many-locals
         self,
