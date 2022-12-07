@@ -33,12 +33,12 @@ from typing import Callable, Generator
 import pytest
 from aea_ledger_solana import SolanaCrypto
 
-from aea_ledger_solana.test_tools.docker_images import DockerImage, GanacheDockerImage
 
 from aea.configurations.constants import PRIVATE_KEY_PATH_SCHEMA
 
 
-CUR_PATH = os.path.dirname(inspect.getfile(inspect.currentframe()))  # type: ignore
+CUR_PATH = os.path.dirname(inspect.getfile(
+    inspect.currentframe()))  # type: ignore
 ROOT_DIR = os.path.join(CUR_PATH, "..")
 MAX_FLAKY_RERUNS = 3
 AIRDROP_AMOUNT = 10_000_000_000
@@ -135,18 +135,6 @@ def solana_private_key_file():
         shutil.rmtree(temp_dir)
 
 
-"""
-default_gas_price_strategy: eip1559
-gas_price_strategies:
-    eip1559:
-        max_gas_fast: ...
-        ....
-    gas_station:
-        gas_price_api_key: ...
-        ....
-"""
-
-
 @pytest.fixture(scope="session")
 def solana_testnet_config(ganache_addr, ganache_port):
     """Get Solana ledger api configurations using Ganache."""
@@ -157,36 +145,3 @@ def solana_testnet_config(ganache_addr, ganache_port):
         "denom": SOLANA_DEFAULT_CURRENCY_DENOM,
     }
     return new_config
-
-
-
-
-def _launch_image(
-    image: DockerImage, timeout: float = 2.0, max_attempts: int = 10
-) -> Generator:
-    """
-    Launch image.
-
-    :param image: an instance of Docker image.
-    :param timeout: timeout to launch
-    :param max_attempts: max launch attempts
-    :yield: image
-    """
-    image.check_skip()
-    image.stop_if_already_running()
-    container = image.create()
-    container.start()
-    logger.info(f"Setting up image {image.tag}...")
-    success = image.wait(max_attempts, timeout)
-    if not success:
-        logger.warning(f"Logs: {container.logs()}")
-        container.stop()
-        container.remove()
-        pytest.fail(f"{image.tag} doesn't work. Exiting...")
-    else:
-        logger.info("Done!")
-        time.sleep(timeout)
-        yield
-        logger.info(f"Stopping the image {image.tag}...")
-        container.stop()
-        container.remove()

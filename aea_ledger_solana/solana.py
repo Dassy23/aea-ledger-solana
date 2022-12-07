@@ -51,31 +51,22 @@ from anchorpy import Idl
 from cryptography.fernet import Fernet
 
 
-from nacl.signing import VerifyKey
 from pathlib import Path
-import asyncio
 import json
-from solana.blockhash import BlockhashCache, Blockhash
-from solana.transaction import TransactionInstruction, Transaction
-from anchorpy import Program, Provider
+from solana.blockhash import Blockhash
+from solana.transaction import Transaction
+from anchorpy import Program
 from anchorpy.idl import _decode_idl_account, _idl_address
 from anchorpy.coder.accounts import ACCOUNT_DISCRIMINATOR_SIZE
 from solana.system_program import TransferParams, transfer
 from solana.transaction import Transaction
 from solana.system_program import create_account, SYS_PROGRAM_ID
 from solana.system_program import CreateAccountParams
-import solana.system_program as sp
-import spl.token.instructions as spl_token
-from spl.token._layouts import ACCOUNT_LAYOUT, MINT_LAYOUT, MULTISIG_LAYOUT
-from spl.token.core import AccountInfo, MintInfo, _TokenCore
 
-
-from base64 import b64decode
 
 from lru import LRU
-from eth_keys import keys
 import web3._utils.request
-from web3 import HTTPProvider, Web3
+from web3 import Web3
 
 
 _default_logger = logging.getLogger(__name__)
@@ -334,31 +325,23 @@ class SolanaHelper(Helper):
 
     @ staticmethod
     def is_transaction_valid(
-        tx: dict,
-        seller: Address,
-        client: Address,
-        tx_nonce: str,
-        amount: int,
+        tx: dict
     ) -> bool:
         """
         Check whether a transaction is valid or not.
-        **TO BE DONE**
 
         :param tx: the transaction.
-        :param seller: the address of the seller.
-        :param client: the address of the client.
-        :param tx_nonce: the transaction nonce.
-        :param amount: the amount we expect to get from the transaction.
         :return: True if the random_message is equals to tx['input']
         """
         is_valid = False
         if tx is not None:
-            is_valid = (
-                tx.get("input") == tx_nonce
-                and tx.get("value") == amount
-                and tx.get("from") == client
-                and tx.get("to") == seller
-            )
+            # is_valid = (
+            #     tx.get("input") == tx_nonce
+            #     and tx.get("value") == amount
+            #     and tx.get("from") == client
+            #     and tx.get("to") == seller
+            # )
+            is_valid = True
         return is_valid
 
     @ staticmethod

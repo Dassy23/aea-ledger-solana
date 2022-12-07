@@ -121,7 +121,7 @@ def _wait_get_receipt(
     not_settled = True
     elapsed_time = 0
     time_to_wait = 40
-    sleep_time = 2
+    sleep_time = 1
     while not_settled and elapsed_time < time_to_wait:
         elapsed_time += sleep_time
         time.sleep(sleep_time)
