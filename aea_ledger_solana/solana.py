@@ -65,8 +65,8 @@ from solana.system_program import CreateAccountParams
 
 
 from lru import LRU
-import web3._utils.request
-from web3 import Web3
+# import web3._utils.request
+# from web3 import Web3
 
 
 _default_logger = logging.getLogger(__name__)
@@ -365,8 +365,9 @@ class SolanaHelper(Helper):
         :param message: the message to be hashed.
         :return: the hash of the message as a hex string.
         """
-        digest = Web3.keccak(message).hex()
-        return digest
+        sha = hashlib.sha256()
+        sha.update(message)
+        return sha.hexdigest()
 
     @classmethod
     def recover_message(
@@ -488,7 +489,7 @@ class SolanaApi(LedgerApi, SolanaHelper):
         self._chain_id = kwargs.pop("chain_id", DEFAULT_CHAIN_ID)
 
     @property
-    def api(self) -> Web3:
+    def api(self) -> Client:
         """Get the underlying API object."""
         return self._api
 
@@ -940,4 +941,4 @@ def set_wrapper_for_web3py_session_cache() -> None:
     )
 
 
-set_wrapper_for_web3py_session_cache()
+# set_wrapper_for_web3py_session_cache()

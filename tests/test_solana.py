@@ -97,7 +97,7 @@ def test_derive_address():
 
 def test_get_hash():
     """Test the get hash functionality."""
-    expected_hash = "0x1c8aff950685c2ed4bc3174f3472287b56d9517b9c948127319a09a7a36deac8"
+    expected_hash = '2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824'
     hash_ = SolanaApi.get_hash(message=b"hello")
     assert expected_hash == hash_
 
