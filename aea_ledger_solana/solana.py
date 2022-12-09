@@ -77,6 +77,7 @@ DEFAULT_ADDRESS = "http://127.0.0.1:8899"
 DEFAULT_CHAIN_ID = "solana"
 DEFAULT_CURRENCY_DENOM = "lamports"
 RENT_EXEMPT_AMOUNT = 1000000
+LAMPORTS_PER_SOL = 1000000000
 _IDL = "idl"
 _BYTECODE = "bytecode"
 
@@ -855,7 +856,7 @@ class SolanaFaucetApi(FaucetApi):
     identifier = _SOLANA
     testnet_name = TESTNET_NAME
 
-    def get_wealth(self, address: Address, amount: int, url: Optional[str] = None) -> None:
+    def get_wealth(self, address: Address, amount: Optional[int] = None, url: Optional[str] = None) -> None:
         """
         Get wealth from the faucet for the provided address.
 
@@ -870,7 +871,7 @@ class SolanaFaucetApi(FaucetApi):
         "An error occured while attempting to generate wealth:\n{}",
         logger_method="error",
     )
-    def _try_get_wealth(address: Address, amount: int, url: Optional[str] = None) -> str or None:
+    def _try_get_wealth(address: Address, amount: Optional[int] = None, url: Optional[str] = None) -> str or None:
         """
         Get wealth from the faucet for the provided address.
 
@@ -880,11 +881,14 @@ class SolanaFaucetApi(FaucetApi):
         if url is None:
             url = DEFAULT_ADDRESS
 
+        if amount is None:
+            amount = LAMPORTS_PER_SOL*5
+
         solana_client = Client(url)
         response = None
         try:
             resp = solana_client.request_airdrop(
-                address, amount)
+                PublicKey(address), amount)
         except Exception as e:
             msg = e
             pass

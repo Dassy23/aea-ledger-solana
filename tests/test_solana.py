@@ -341,10 +341,24 @@ def test_get_wealth(caplog):
         sc = SolanaCrypto()
 
         tx_signature = solana_faucet_api.get_wealth(
-            sc.public_key, AIRDROP_AMOUNT, "http://127.0.0.1:8899/")
+            sc.address, AIRDROP_AMOUNT, "http://127.0.0.1:8899/")
 
         assert tx_signature is not None
 
+
+@pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
+@pytest.mark.integration
+@pytest.mark.ledger
+def test_get_wealth_default(caplog):
+    """Test the balance is zero for a new account."""
+    with caplog.at_level(logging.DEBUG, logger="aea.crypto.solana._default_logger"):
+        solana_faucet_api = SolanaFaucetApi()
+        sc = SolanaCrypto()
+
+        tx_signature = solana_faucet_api.get_wealth(
+            sc.address)
+
+        assert tx_signature is not None
 
 # @pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
 # @pytest.mark.integration
