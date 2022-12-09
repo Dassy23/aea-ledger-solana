@@ -13,3 +13,9 @@ python setup.py install
 ```bash
 python setup.py test
 ```
+
+## Start
+
+```bash
+pipenv --python 3.10 && pipenv shell
+```

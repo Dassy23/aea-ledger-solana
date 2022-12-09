@@ -157,3 +157,4 @@ agent_name/
 leak_report
 solana_private_key.txt
 test-ledger
+Pipfile*

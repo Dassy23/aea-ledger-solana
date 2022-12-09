@@ -932,13 +932,13 @@ class LruLockWrapper:
             return self.lru.__delitem__(*args, **kwargs)
 
 
-def set_wrapper_for_web3py_session_cache() -> None:
-    """Wrap web3py session cache with threading.Lock."""
+# def set_wrapper_for_web3py_session_cache() -> None:
+#     """Wrap web3py session cache with threading.Lock."""
 
-    # pylint: disable=protected-access
-    web3._utils.request._session_cache = LruLockWrapper(
-        web3._utils.request._session_cache
-    )
+#     # pylint: disable=protected-access
+#     web3._utils.request._session_cache = LruLockWrapper(
+#         web3._utils.request._session_cache
+#     )
 
 
 # set_wrapper_for_web3py_session_cache()

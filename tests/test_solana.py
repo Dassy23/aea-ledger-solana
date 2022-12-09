@@ -406,14 +406,14 @@ def test_load_contract_instance():
 #         )
 
 
-def test_session_cache():
-    """Test session cache."""
-    assert isinstance(session_cache, LruLockWrapper)
+# def test_session_cache():
+#     """Test session cache."""
+#     assert isinstance(session_cache, LruLockWrapper)
 
-    session_cache[1] = 1
-    assert session_cache[1] == 1
-    del session_cache[1]
-    assert 1 not in session_cache
+#     session_cache[1] = 1
+#     assert session_cache[1] == 1
+#     del session_cache[1]
+#     assert 1 not in session_cache
 
 
 # def test_dump_load_with_password():
