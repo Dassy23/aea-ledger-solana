@@ -11,16 +11,16 @@ python setup.py install
 ## Run tests
 
 ```bash
-python setup.py test
+pytest
 ```
 
 ## Start
 
 ```bash
-pipenv --python 3.10 && pipenv shell
+PIPENV_IGNORE_VIRTUALENVS=1 && pipenv --python 3.10 && pipenv shell
 ```
 
-## Build and Start testnet docker image
+## Pull and start testnet docker image
 
 ```bash
 docker pull dassy23/solana-test-ledger:latest
