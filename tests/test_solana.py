@@ -42,8 +42,6 @@ from aea_ledger_solana import (
 from solana.transaction import Transaction
 from solana.publickey import PublicKey
 
-# from web3 import Web3
-from web3._utils.request import _session_cache as session_cache
 
 from aea.common import JSONLike
 from aea.crypto.helpers import DecryptError, KeyIsIncorrect
