@@ -31,7 +31,7 @@ from pathlib import Path
 from typing import Callable, Generator
 
 import pytest
-from aea_ledger_solana import SolanaCrypto
+from aea_ledger_solana import SolanaCrypto, SolanaFaucetApi
 
 
 from aea.configurations.constants import PRIVATE_KEY_PATH_SCHEMA
@@ -131,16 +131,20 @@ def action_for_platform(platform_name: str, skip: bool = True) -> Callable:
 def solana_private_key_file():
     """Pytest fixture to create a temporary Solana private key file."""
     crypto = SolanaCrypto()
+    faucet = SolanaFaucetApi()
+    tst = faucet.get_wealth(crypto.address)
+
     temp_dir = Path(tempfile.mkdtemp())
     try:
-        temp_file = temp_dir / "private.key"
+        temp_file = temp_dir / "private_key.txt"
         temp_file.write_text(crypto.private_key)
         yield str(temp_file)
+
     finally:
         shutil.rmtree(temp_dir)
 
 
-@pytest.fixture(scope="session")
+@ pytest.fixture(scope="session")
 def solana_testnet_config(ganache_addr, ganache_port):
     """Get Solana ledger api configurations using Ganache."""
     new_uri = f"{ganache_addr}:{ganache_port}"

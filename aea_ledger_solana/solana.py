@@ -144,8 +144,6 @@ class SolanaCrypto(Crypto[Keypair]):
         """
         Return the address for the key pair.
 
-        40 hex characters (i.e. 20 bytes) + "0x" prefix.
-
         :return: an address string in hex format
         """
         return self._address.to_base58().decode()
@@ -164,7 +162,7 @@ class SolanaCrypto(Crypto[Keypair]):
         private_key = open(file_name, "r").read()
 
         try:
-            key = Keypair.from_secret_key(private_key.encode("utf-8"))
+            key = Keypair.from_secret_key(bytes.fromhex(private_key))
         except Exception as e:
 
             raise KeyIsIncorrect(
@@ -282,7 +280,7 @@ class SolanaCrypto(Crypto[Keypair]):
 class SolanaHelper(Helper):
     """Helper class usable as Mixin for SolanaApi or as standalone class."""
 
-    @classmethod
+    @ classmethod
     def load_contract_interface(cls,
                                 file_path: Optional[Path] = None,
                                 program_address: Optional[str] = None,
@@ -370,7 +368,7 @@ class SolanaHelper(Helper):
         sha.update(message)
         return sha.hexdigest()
 
-    @classmethod
+    @ classmethod
     def recover_message(
         cls, message: bytes, signature: str, is_deprecated_mode: bool = False
     ) -> Tuple[Address, ...]:
@@ -391,7 +389,7 @@ class SolanaHelper(Helper):
         #     return False
         return True
 
-    @classmethod
+    @ classmethod
     def recover_public_keys_from_message(
         cls, message: bytes, signature: str, is_deprecated_mode: bool = False
     ) -> Tuple[str, ...]:
@@ -489,7 +487,7 @@ class SolanaApi(LedgerApi, SolanaHelper):
         )
         self._chain_id = kwargs.pop("chain_id", DEFAULT_CHAIN_ID)
 
-    @property
+    @ property
     def api(self) -> Client:
         """Get the underlying API object."""
         return self._api
@@ -513,10 +511,11 @@ class SolanaApi(LedgerApi, SolanaHelper):
         """Get the balance of a given account."""
         return self._try_get_balance(address, raise_on_try=raise_on_try)
 
-    @try_decorator("Unable to retrieve balance: {}", logger_method="warning")
+    @ try_decorator("Unable to retrieve balance: {}", logger_method="warning")
     def _try_get_balance(self, address: Address, **_kwargs: Any) -> Optional[int]:
         """Get the balance of a given account."""
-        response = self._api.get_balance(address)  # pylint: disable=no-member
+        response = self._api.get_balance(
+            PublicKey(address))  # pylint: disable=no-member
         return response.value
 
     # def get_token_balances(
@@ -551,7 +550,7 @@ class SolanaApi(LedgerApi, SolanaHelper):
         )
         return response
 
-    @try_decorator("Unable to get state: {}", logger_method="warning")
+    @ try_decorator("Unable to get state: {}", logger_method="warning")
     def _try_get_state(  # pylint: disable=unused-argument
         self, address: str, *args: Any, **kwargs: Any
     ) -> Optional[JSONLike]:
@@ -605,7 +604,7 @@ class SolanaApi(LedgerApi, SolanaHelper):
                 program_id=SYS_PROGRAM_ID
             )
             createAccountInstruction = create_account(params)
-            txn = Transaction(fee_payer=sender_address).add(createAccountInstruction).add(transfer(TransferParams(
+            txn = Transaction(fee_payer=PublicKey(sender_address)).add(createAccountInstruction).add(transfer(TransferParams(
                 from_pubkey=PublicKey(sender_address), to_pubkey=PublicKey(destination_address), lamports=amount-RENT_EXEMPT_AMOUNT)))
 
         elif unfunded_account and amount < RENT_EXEMPT_AMOUNT:
@@ -890,8 +889,8 @@ class SolanaFaucetApi(FaucetApi):
             resp = solana_client.request_airdrop(
                 PublicKey(address), amount)
         except Exception as e:
-            msg = e
-            pass
+            _default_logger.error(
+                "Response: {} , e: {}".format("airdrop failed", e))
         response = (json.loads(resp.to_json()))
         if response['result'] == None:
             _default_logger.error("Response: {}".format("airdrop failed"))

@@ -48,14 +48,14 @@ from web3._utils.request import _session_cache as session_cache
 from aea.common import JSONLike
 from aea.crypto.helpers import DecryptError, KeyIsIncorrect
 
-from tests.conftest import MAX_FLAKY_RERUNS, ROOT_DIR, SOLANA_PRIVATE_KEY_FILE, AIRDROP_AMOUNT
+from tests.conftest import MAX_FLAKY_RERUNS, ROOT_DIR, AIRDROP_AMOUNT
 
 
-def test_creation():
+def test_creation(solana_private_key_file):
     """Test the creation of the crypto_objects."""
     assert SolanaCrypto(), "Managed to initialise the solana_keypair"
     assert SolanaCrypto(
-        SOLANA_PRIVATE_KEY_FILE
+        solana_private_key_file
     ), "Managed to load the sol private key"
 
 
@@ -178,20 +178,18 @@ def _construct_and_settle_tx(
 @pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
 @pytest.mark.integration
 @pytest.mark.ledger
-def test_unfunded_transfer_transaction():
+def test_unfunded_transfer_transaction(solana_private_key_file):
     """Test the construction, signing and submitting of a transfer transaction."""
-    account1 = SolanaCrypto(private_key_path=SOLANA_PRIVATE_KEY_FILE)
+    account1 = SolanaCrypto(private_key_path=solana_private_key_file)
     account2 = SolanaCrypto()
-
+    time.sleep(20)
     solana_api = SolanaApi()
-
-    balance1 = solana_api.get_balance(account1.public_key)
-    balance2 = solana_api.get_balance(account2.public_key)
-
+    balance1 = solana_api.get_balance(account1.address)
+    balance2 = solana_api.get_balance(account2.address)
     AMOUNT = 1232323
     tx_params = {
-        "sender_address": account1.public_key,
-        "destination_address": account2.public_key,
+        "sender_address": account1.address,
+        "destination_address": account2.address,
         "amount": AMOUNT,
         "unfunded_account": True,
     }
@@ -209,7 +207,7 @@ def test_unfunded_transfer_transaction():
 
     assert tx['blockTime'] == transaction_receipt['blockTime'], "Should be same"
 
-    balance3 = solana_api.get_balance(account2.public_key)
+    balance3 = solana_api.get_balance(account2.address)
 
     assert AMOUNT == balance3, "Should be the same balance"
 
@@ -217,9 +215,9 @@ def test_unfunded_transfer_transaction():
 @pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
 @pytest.mark.integration
 @pytest.mark.ledger
-def test_funded_transfer_transaction():
+def test_funded_transfer_transaction(solana_private_key_file):
     """Test the construction, signing and submitting of a transfer transaction."""
-    account1 = SolanaCrypto(private_key_path=SOLANA_PRIVATE_KEY_FILE)
+    account1 = SolanaCrypto(private_key_path=solana_private_key_file)
     account2 = SolanaCrypto()
 
     solana_api = SolanaApi()
@@ -271,23 +269,23 @@ def test_funded_transfer_transaction():
 @pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
 @pytest.mark.integration
 @pytest.mark.ledger
-def test_get_sol_balance(caplog):
+def test_get_sol_balance(caplog, solana_private_key_file):
     """Test the balance is zero for a new account."""
     with caplog.at_level(logging.DEBUG, logger="aea.crypto.solana._default_logger"):
         # solana_faucet_api = SolanaFaucetApi()
-        sc = SolanaCrypto(private_key_path=SOLANA_PRIVATE_KEY_FILE)
+        sc = SolanaCrypto(private_key_path=solana_private_key_file)
         sa = SolanaApi()
 
-        balance = sa.get_balance(sc.public_key)
+        balance = sa.get_balance(sc.address)
         assert isinstance(balance, int)
 
 
 @pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
 @pytest.mark.integration
 @pytest.mark.ledger
-def test_state_from_address():
+def test_state_from_address(solana_private_key_file):
     """Test the get_address_from_public_key method"""
-    account1 = SolanaCrypto(private_key_path=SOLANA_PRIVATE_KEY_FILE)
+    account1 = SolanaCrypto(private_key_path=solana_private_key_file)
 
     solana_api = SolanaApi()
     account_state = solana_api.get_state(account1.address)
@@ -298,11 +296,11 @@ def test_state_from_address():
 @pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
 @pytest.mark.integration
 @pytest.mark.ledger
-def test_get_tx(caplog):
+def test_get_tx(caplog, solana_private_key_file):
     """Test get tx from signature"""
     with caplog.at_level(logging.DEBUG, logger="aea.crypto.solana._default_logger"):
         solana_faucet_api = SolanaFaucetApi()
-        sc = SolanaCrypto(private_key_path=SOLANA_PRIVATE_KEY_FILE)
+        sc = SolanaCrypto(private_key_path=solana_private_key_file)
         solana_api = SolanaApi()
         tx_signature = solana_faucet_api.get_wealth(
             sc.public_key, AIRDROP_AMOUNT, "http://127.0.0.1:8899/")
@@ -316,10 +314,10 @@ def test_get_tx(caplog):
 @pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
 @pytest.mark.integration
 @pytest.mark.ledger
-def test_encrypt_decrypt_privatekey(caplog):
+def test_encrypt_decrypt_privatekey(caplog, solana_private_key_file):
     """Test the balance is zero for a new account."""
     with caplog.at_level(logging.DEBUG, logger="aea.crypto.solana._default_logger"):
-        sc = SolanaCrypto(private_key_path=SOLANA_PRIVATE_KEY_FILE)
+        sc = SolanaCrypto(private_key_path=solana_private_key_file)
         privKey = sc.private_key
 
         encrypted = sc.encrypt("test123456788")
@@ -574,9 +572,9 @@ def test_load_contract_instance():
 #             assert result == dict(nonce=0, value=0, gas=0)
 
 
-def test_get_transaction_transfer_logs():
+def test_get_transaction_transfer_logs(solana_private_key_file):
     """Test SolanaApi.get_transaction_transfer_logs."""
-    account1 = SolanaCrypto(private_key_path=SOLANA_PRIVATE_KEY_FILE)
+    account1 = SolanaCrypto(private_key_path=solana_private_key_file)
     account2 = SolanaCrypto()
 
     solana_api = SolanaApi()
