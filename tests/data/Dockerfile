@@ -39,5 +39,6 @@ RUN apt update && \
 
 COPY --from=builder /workspace/bin/* /workspace/bin/
 
+
 CMD ["solana-test-validator"]
 

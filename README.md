@@ -23,9 +23,9 @@ pipenv --python 3.10 && pipenv shell
 ## Build and Start testnet docker image
 
 ```bash
-docker build ./tests/data/ test-ledger
+docker pull dassy23/solana-test-ledger:latest
 ```
 
 ```bash
-docker run -d -p 8899:8899 -p 8900:8900 test-ledger
+docker run -d -p 8899:8899 -p 8900:8900 dassy23/solana-test-ledger:latest
 ```
