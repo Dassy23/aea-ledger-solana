@@ -37,7 +37,7 @@ from aea_ledger_solana import (
     SolanaApi,
     SolanaCrypto,
     SolanaFaucetApi,
-    LruLockWrapper,
+    LAMPORTS_PER_SOL,
 )
 from solana.transaction import Transaction
 from solana.publickey import PublicKey
@@ -49,6 +49,42 @@ from aea.common import JSONLike
 from aea.crypto.helpers import DecryptError, KeyIsIncorrect
 
 from tests.conftest import MAX_FLAKY_RERUNS, ROOT_DIR, AIRDROP_AMOUNT
+
+
+@pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
+@pytest.mark.integration
+@pytest.mark.ledger
+def test_get_wealth(caplog, solana_private_key_file):
+    """Test the balance is zero for a new account."""
+    with caplog.at_level(logging.DEBUG, logger="aea.crypto.solana._default_logger"):
+        solana_faucet_api = SolanaFaucetApi()
+        solana_api = SolanaApi()
+        sc = SolanaCrypto(solana_private_key_file)
+
+        transaction_digest = solana_faucet_api.get_wealth(
+            sc.address, AIRDROP_AMOUNT, "http://127.0.0.1:8899/")
+
+        assert transaction_digest is not None
+
+        transaction_receipt, is_settled = _wait_get_receipt(
+            solana_api, transaction_digest
+        )
+        assert is_settled == True
+
+
+@pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
+@pytest.mark.integration
+@pytest.mark.ledger
+def test_get_wealth_default(caplog, solana_private_key_file):
+    """Test the balance is zero for a new account."""
+    with caplog.at_level(logging.DEBUG, logger="aea.crypto.solana._default_logger"):
+        solana_faucet_api = SolanaFaucetApi()
+        sc = SolanaCrypto(solana_private_key_file)
+
+        tx_signature = solana_faucet_api.get_wealth(
+            sc.address)
+
+        assert tx_signature is not None
 
 
 def test_creation(solana_private_key_file):
@@ -182,7 +218,6 @@ def test_unfunded_transfer_transaction(solana_private_key_file):
     """Test the construction, signing and submitting of a transfer transaction."""
     account1 = SolanaCrypto(private_key_path=solana_private_key_file)
     account2 = SolanaCrypto()
-    time.sleep(20)
     solana_api = SolanaApi()
     balance1 = solana_api.get_balance(account1.address)
     balance2 = solana_api.get_balance(account2.address)
@@ -222,9 +257,13 @@ def test_funded_transfer_transaction(solana_private_key_file):
 
     solana_api = SolanaApi()
     solana_faucet_api = SolanaFaucetApi()
-    solana_faucet_api.get_wealth(account1.public_key, AIRDROP_AMOUNT*2)
 
-    solana_faucet_api.get_wealth(account2.public_key, AIRDROP_AMOUNT)
+    transaction_digest = solana_faucet_api.get_wealth(
+        account2.public_key, AIRDROP_AMOUNT)
+
+    transaction_receipt, is_settled = _wait_get_receipt(
+        solana_api, transaction_digest
+    )
 
     balance1 = solana_api.get_balance(account1.public_key)
 
@@ -263,7 +302,8 @@ def test_funded_transfer_transaction(solana_private_key_file):
 
     balance3 = solana_api.get_balance(account2.public_key)
 
-    assert AMOUNT+AIRDROP_AMOUNT == balance3, "Should be the same balance"
+    assert AMOUNT+(AIRDROP_AMOUNT *
+                   LAMPORTS_PER_SOL) == balance3, "Should be the same balance"
 
 
 @pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
@@ -329,35 +369,6 @@ def test_encrypt_decrypt_privatekey(caplog, solana_private_key_file):
         # assert privKey != decrypted, "Private keys dont match"
 
 
-@pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
-@pytest.mark.integration
-@pytest.mark.ledger
-def test_get_wealth(caplog):
-    """Test the balance is zero for a new account."""
-    with caplog.at_level(logging.DEBUG, logger="aea.crypto.solana._default_logger"):
-        solana_faucet_api = SolanaFaucetApi()
-        sc = SolanaCrypto()
-
-        tx_signature = solana_faucet_api.get_wealth(
-            sc.address, AIRDROP_AMOUNT, "http://127.0.0.1:8899/")
-
-        assert tx_signature is not None
-
-
-@pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
-@pytest.mark.integration
-@pytest.mark.ledger
-def test_get_wealth_default(caplog):
-    """Test the balance is zero for a new account."""
-    with caplog.at_level(logging.DEBUG, logger="aea.crypto.solana._default_logger"):
-        solana_faucet_api = SolanaFaucetApi()
-        sc = SolanaCrypto()
-
-        tx_signature = solana_faucet_api.get_wealth(
-            sc.address)
-
-        assert tx_signature is not None
-
 # @pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
 # @pytest.mark.integration
 # @pytest.mark.ledger
@@ -398,178 +409,6 @@ def test_load_contract_instance():
                                                contract_interface=result, contract_address=pid)
 
     assert hasattr(instance, 'coder')
-
-
-# def test_ethereum_api_get_deploy_transaction(ethereum_testnet_config):
-#     """Test EthereumApi.get_deploy_transaction."""
-#     ethereum_api = EthereumApi(**ethereum_testnet_config)
-#     ec1 = EthereumCrypto()
-#     with patch.object(ethereum_api.api.eth, "get_transaction_count", return_value=None):
-#         assert (
-#             ethereum_api.get_deploy_transaction(
-#                 **{
-#                     "contract_interface": {"": ""},
-#                     "deployer_address": ec1.address,
-#                     "value": 1,
-#                     "max_fee_per_gas": 10,
-#                 }
-#             )
-#             is None
-#         )
-
-
-# def test_session_cache():
-#     """Test session cache."""
-#     assert isinstance(session_cache, LruLockWrapper)
-
-#     session_cache[1] = 1
-#     assert session_cache[1] == 1
-#     del session_cache[1]
-#     assert 1 not in session_cache
-
-
-# def test_dump_load_with_password():
-#     """Test dumping and loading a key with password."""
-#     with tempfile.TemporaryDirectory() as dirname:
-#         encrypted_file_name = Path(dirname, "eth_key_encrypted")
-#         password = "somePwd"  # nosec
-#         ec = EthereumCrypto()
-#         ec.dump(encrypted_file_name, password)
-#         assert encrypted_file_name.exists()
-#         with pytest.raises(DecryptError, match="Decrypt error! Bad password?"):
-#             ec2 = EthereumCrypto.load_private_key_from_path(
-#                 encrypted_file_name, "wrongPassw"
-#             )
-#         ec2 = EthereumCrypto(encrypted_file_name, password)
-#         assert ec2.private_key == ec.private_key
-
-
-# def test_load_errors():
-#     """Test load errors: bad password, no password specified."""
-#     ec = EthereumCrypto()
-#     with patch.object(EthereumCrypto, "load", return_value="bad sTring"):
-#         with pytest.raises(KeyIsIncorrect, match="Try to specify `password`"):
-#             ec.load_private_key_from_path("any path")
-
-#         with pytest.raises(KeyIsIncorrect, match="Wrong password?"):
-#             ec.load_private_key_from_path("any path", password="some")
-
-
-# def test_decrypt_error():
-#     """Test bad password error on decrypt."""
-#     ec = EthereumCrypto()
-#     ec._pritvate_key = EthereumCrypto.generate_private_key()
-#     password = "test"
-#     encrypted_data = ec.encrypt(password=password)
-#     with pytest.raises(DecryptError, match="Bad password"):
-#         ec.decrypt(encrypted_data, password + "some")
-
-#     with patch(
-#         "aea_ledger_ethereum.ethereum.Account.decrypt",
-#         side_effect=ValueError("expected"),
-#     ):
-#         with pytest.raises(ValueError, match="expected"):
-#             ec.decrypt(encrypted_data, password + "some")
-
-
-# def test_helper_get_contract_address():
-#     """Test EthereumHelper.get_contract_address."""
-#     assert EthereumHelper.get_contract_address({"contractAddress": "123"}) == "123"
-
-
-# def test_contract_method_call():
-#     """Test EthereumApi.contract_method_call."""
-
-#     method_mock = MagicMock()
-#     method_mock().call = MagicMock(return_value={"value": 0})
-
-#     contract_instance = MagicMock()
-#     contract_instance.functions.dummy_method = method_mock
-
-#     result = EthereumApi.contract_method_call(
-#         contract_instance=contract_instance, method_name="dummy_method", dummy_arg=1
-#     )
-#     assert result["value"] == 0
-
-
-# def test_build_transaction(ethereum_testnet_config):
-#     """Test EthereumApi.build_transaction."""
-
-#     def pass_tx_params(tx_params):
-#         return tx_params
-
-#     tx_mock = MagicMock()
-#     tx_mock.buildTransaction = pass_tx_params
-
-#     method_mock = MagicMock(return_value=tx_mock)
-
-#     contract_instance = MagicMock()
-#     contract_instance.functions.dummy_method = method_mock
-
-#     eth_api = EthereumApi(**ethereum_testnet_config)
-
-#     with pytest.raises(
-#         ValueError, match=re.escape("Argument 'method_args' cannot be 'None'.")
-#     ):
-#         eth_api.build_transaction(
-#             contract_instance=contract_instance,
-#             method_name="dummy_method",
-#             method_args=None,
-#             tx_args={},
-#         )
-#     with pytest.raises(
-#         ValueError, match=re.escape("Argument 'tx_args' cannot be 'None'.")
-#     ):
-#         eth_api.build_transaction(
-#             contract_instance=contract_instance,
-#             method_name="dummy_method",
-#             method_args={},
-#             tx_args=None,
-#         )
-
-#     with mock.patch(
-#         "web3.eth.Eth.get_transaction_count",
-#         return_value=0,
-#     ):
-#         result = eth_api.build_transaction(
-#             contract_instance=contract_instance,
-#             method_name="dummy_method",
-#             method_args={},
-#             tx_args=dict(
-#                 sender_address="sender_address",
-#                 eth_value=0,
-#                 gas=0,
-#                 gasPrice=0,  # camel-casing due to contract api requirements
-#                 maxFeePerGas=0,  # camel-casing due to contract api requirements
-#                 maxPriorityFeePerGas=0,  # camel-casing due to contract api requirements
-#             ),
-#         )
-
-#         assert result == dict(
-#             nonce=0,
-#             value=0,
-#             gas=0,
-#             gasPrice=0,
-#             maxFeePerGas=0,
-#             maxPriorityFeePerGas=0,
-#         )
-
-#         with mock.patch.object(
-#             EthereumApi,
-#             "try_get_gas_pricing",
-#             return_value={"gas": 0},
-#         ):
-#             result = eth_api.build_transaction(
-#                 contract_instance=contract_instance,
-#                 method_name="dummy_method",
-#                 method_args={},
-#                 tx_args=dict(
-#                     sender_address="sender_address",
-#                     eth_value=0,
-#                 ),
-#             )
-
-#             assert result == dict(nonce=0, value=0, gas=0)
 
 
 def test_get_transaction_transfer_logs(solana_private_key_file):

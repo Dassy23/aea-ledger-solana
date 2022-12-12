@@ -881,7 +881,9 @@ class SolanaFaucetApi(FaucetApi):
             url = DEFAULT_ADDRESS
 
         if amount is None:
-            amount = LAMPORTS_PER_SOL*5
+            amount = LAMPORTS_PER_SOL*1
+        else:
+            amount = LAMPORTS_PER_SOL*amount
 
         solana_client = Client(url)
         response = None

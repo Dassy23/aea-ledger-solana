@@ -41,7 +41,7 @@ CUR_PATH = os.path.dirname(inspect.getfile(
     inspect.currentframe()))  # type: ignore
 ROOT_DIR = os.path.join(CUR_PATH, "..")
 MAX_FLAKY_RERUNS = 3
-AIRDROP_AMOUNT = 10_000_000_000
+AIRDROP_AMOUNT = 2
 
 SOLANA = SolanaCrypto.identifier
 
@@ -131,9 +131,6 @@ def action_for_platform(platform_name: str, skip: bool = True) -> Callable:
 def solana_private_key_file():
     """Pytest fixture to create a temporary Solana private key file."""
     crypto = SolanaCrypto()
-    faucet = SolanaFaucetApi()
-    tst = faucet.get_wealth(crypto.address)
-
     temp_dir = Path(tempfile.mkdtemp())
     try:
         temp_file = temp_dir / "private_key.txt"
