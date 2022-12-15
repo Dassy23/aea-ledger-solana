@@ -18,7 +18,6 @@
 #
 # ------------------------------------------------------------------------------
 """Solana module wrapping the public and private key cryptography and ledger api."""
-import decimal
 import json
 import logging
 import hashlib
@@ -26,13 +25,10 @@ import base64
 
 import threading
 import warnings
-from copy import deepcopy
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union, cast
-from uuid import uuid4
-from ast import literal_eval
 import zlib
-
+import time
 
 from aea.common import Address, JSONLike
 from aea.crypto.base import Crypto, FaucetApi, Helper, LedgerApi
@@ -62,6 +58,7 @@ from solana.system_program import TransferParams, transfer
 from solana.transaction import Transaction
 from solana.system_program import create_account, SYS_PROGRAM_ID
 from solana.system_program import CreateAccountParams
+from borsh_construct import String, CStruct, U8, U32
 
 
 from lru import LRU
@@ -282,7 +279,7 @@ class SolanaHelper(Helper):
 
     @ classmethod
     def load_contract_interface(cls,
-                                file_path: Optional[Path] = None,
+                                idl_file_path: Optional[Path] = None,
                                 program_address: Optional[str] = None,
                                 rpc_api: Optional[str] = None,
                                 ) -> Dict[str, str]:
@@ -290,6 +287,8 @@ class SolanaHelper(Helper):
         Load contract interface.
 
         :param file_path: the file path to the interface
+        :param program_address: the program address
+        :param rpc_api: the rpc api
         :return: the interface
         """
         contract_interface = None
@@ -314,8 +313,8 @@ class SolanaHelper(Helper):
             except Exception as e:
                 raise Exception("Could not locate IDL")
 
-        elif file_path is not None:
-            with open_file(file_path, "r") as interface_file_solana:
+        elif idl_file_path is not None:
+            with open_file(idl_file_path, "r") as interface_file_solana:
                 contract_interface = json.load(interface_file_solana)
             return contract_interface
         else:
@@ -518,29 +517,6 @@ class SolanaApi(LedgerApi, SolanaHelper):
             PublicKey(address))  # pylint: disable=no-member
         return response.value
 
-    # def get_token_balances(
-    #     self, address: Address, raise_on_try: bool = False
-    # ) -> list:
-    #     """Get the balance of a given account."""
-    #     return self._try_get_token_balances(address, raise_on_try=raise_on_try)
-
-    # @try_decorator("Unable to retrieve balance: {}", logger_method="warning")
-    # def _try_get_token_balances(self, address: Address, **_kwargs: Any) -> list:
-    #     """Get the token balances of a given owner."""
-    #     txOpts = types.TokenAccountOpts(program_id=PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA'))
-    #     response = self._api.get_token_accounts_by_owner_json_parsed(PublicKey(address),opts=txOpts)  # pylint: disable=no-member
-    #     balances = []
-    #     for key in response.value:
-    #         balance = json.loads(key.account.data.parsed)
-    #         balances.append(
-    #             {
-    #                 "mint": balance['info']['mint'],
-    #                 "balance":balance['info']['tokenAmount']['uiAmount']
-    #             }
-    #             )
-
-    #     return balances
-
     def get_state(
         self, address: str, *args: Any, raise_on_try: bool = False, **kwargs: Any
     ) -> Optional[JSONLike]:
@@ -726,26 +702,33 @@ class SolanaApi(LedgerApi, SolanaHelper):
         return json.loads(tx.value.to_json())
 
     def get_contract_instance(
-        self, contract_interface: Dict[str, str], contract_address: str
+        self, contract_interface: Dict[str, str], contract_address: str, bytecode_path: Optional[Path] = None
     ) -> Any:
         """
         Get the instance of a contract.
 
         :param contract_interface: the contract interface.
         :param contract_address: the contract address.
+        :param bytecode: the contract bytecode.
         :return: the contract instance
         """
 
         program_id = PublicKey(contract_address)
         idl = Idl.from_json(json.dumps(contract_interface))
         pg = Program(idl, program_id)
-
-        return pg
+        if bytecode_path is not None:
+            # opening for [r]eading as [b]inary
+            in_file = open(bytecode_path, "rb")
+            bytecode = in_file.read()
+        else:
+            bytecode = None
+        return {"program": pg, "bytecode": bytecode}
 
     def get_deploy_transaction(  # pylint: disable=arguments-differ
         self,
-        contract_interface: Dict[str, str],
-        deployer_address: Address,
+        contract_instance: Dict[Any, Any],
+        contract_address: Address,
+        fee_payer_address: Address,
         raise_on_try: bool = False,
         **kwargs: Any,
     ) -> Optional[JSONLike]:
@@ -759,7 +742,61 @@ class SolanaApi(LedgerApi, SolanaHelper):
         :param raise_on_try: whether the method will raise or log on error
         :param kwargs: keyword arguments
         :return: the transaction dictionary.
+        https://github.com/solana-labs/solana-web3.js/blob/d14dcf6c8a8f979ecb7ee16dea37e721e3201db1/src/loader.ts
         """
+        def getMinNumSignatures(dataLength):
+            return (2 * (dataLength/chunk_size) + 1 + 1)
+        data = b'123456789'
+        # fund account
+
+        ###
+
+        PACKET_DATA_SIZE = 1280 - 40 - 8
+        chunk_size = PACKET_DATA_SIZE - 300
+        balanceNeeded = RENT_EXEMPT_AMOUNT
+        try:
+            # Create Program Account
+            params = CreateAccountParams(
+                from_pubkey=payer.public_key,
+                new_account_pubkey=program.public_key,
+                lamports=RENT_EXEMPT_AMOUNT,
+                space=len(data),
+                program_id=SYS_PROGRAM_ID
+            )
+            createAccountInstruction = create_account(params)
+            txn = Transaction().add(createAccountInstruction)
+        except Exception as e:
+            print(e)
+        ##
+
+        # submit transaction
+        try:
+            nonce = self.generate_tx_nonce(self)
+            signed_txn = payer.sign_transaction(txn, nonce)
+            tx_digest = self.send_signed_transaction(signed_txn,)
+            time.sleep(15)
+            settled = self.is_transaction_settled(tx_digest)
+            assert settled
+        except Exception as e:
+            print(e)
+
+        payload_schema = CStruct(
+            "instruction" / U32,
+            "offset" / U32,
+            "bytesLength" / U32,
+            "bytesLengthPadding" / U32,
+            "bytes" / U8[24],
+        )
+
+        def construct_payload(instruction_variant: 1, key: str, value: str):
+            """Generate a serialized instructionVariant"""
+            return payload_schema.build({"id": instruction_variant, "key": key, "value": value})
+
+        while len(data) > 0:
+
+            payload_ser = construct_payload()
+
+        # Write Program Data
 
         return {}
 
@@ -860,6 +897,7 @@ class SolanaFaucetApi(FaucetApi):
         Get wealth from the faucet for the provided address.
 
         :param address: the address.
+        :param amount: the amount of sol to airdrop.
         :param url: the url
         """
 

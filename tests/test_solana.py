@@ -406,7 +406,7 @@ def test_load_contract_instance():
     instance = SolanaApi.get_contract_instance(SolanaApi,
                                                contract_interface=result, contract_address=pid)
 
-    assert hasattr(instance, 'coder')
+    assert hasattr(instance['program'], 'coder')
 
 
 def test_get_transaction_transfer_logs(solana_private_key_file):
@@ -440,8 +440,38 @@ def test_get_transaction_transfer_logs(solana_private_key_file):
 
     assert tx['blockTime'] == transaction_receipt['blockTime'], "Should be same"
 
-    logs = solana_api.get_transaction_transfer_logs(transaction_digest)
-    logs_limited = solana_api.get_transaction_transfer_logs(
-        transaction_digest, account1.address)
+    # logs = solana_api.get_transaction_transfer_logs(transaction_digest)
+    # logs_limited = solana_api.get_transaction_transfer_logs(
+    #     transaction_digest, account1.address)
 
-    assert True is True
+    # assert True is True
+
+
+@pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
+@pytest.mark.integration
+@pytest.mark.ledger
+def test_deploy_program():
+    """Test the deploy contract method."""
+    program_work_dir_path = Path(ROOT_DIR, "tests", "data",
+                                 "spl-token-faucet", "target", "idl", "spl_token_faucet.json")
+    bytecode_path = Path(ROOT_DIR, "tests", "data",
+                         "spl-token-faucet", "target", "deploy", "spl_token_faucet.so")
+    sa = SolanaApi()
+
+    interface = sa.load_contract_interface(idl_file_path=program_work_dir_path)
+
+    payer = SolanaCrypto()
+    program = SolanaCrypto()
+    payer.dump("payer.txt")
+    program.dump("program.txt")
+    faucet = SolanaFaucetApi()
+
+    tx = faucet.get_wealth(payer.address, 10)
+    time.sleep(15)
+    balance = sa.get_balance(payer.address)
+    assert balance == 10 * LAMPORTS_PER_SOL
+
+    instance = sa.get_contract_instance(
+        contract_interface=interface, contract_address=program.address, bytecode_path=bytecode_path)
+
+    txn = sa.get_deploy_transaction()
