@@ -182,7 +182,7 @@ def _construct_and_settle_tx(
         isinstance(transfer_transaction, Transaction)
     ), "Incorrect transfer_transaction constructed."
 
-    nonce = solana_api.generate_tx_nonce(solana_api)
+    nonce = solana_api.generate_tx_nonce()
 
     if tx_params['unfunded_account']:
         signers = [account2]
@@ -363,29 +363,6 @@ def test_encrypt_decrypt_privatekey(caplog, solana_private_key_file):
         decrypted = sc.decrypt(encrypted, "test123456788")
         assert privKey == decrypted, "Private keys match"
 
-        # decrypted = sc.decrypt(encrypted, "test1234567")
-        # assert privKey != decrypted, "Private keys dont match"
-
-
-# @pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
-# @pytest.mark.integration
-# @pytest.mark.ledger
-# def test_deploy_program():
-#     """Test the deploy program method."""
-#     program_work_dir_path = Path(ROOT_DIR, "tests", "data",
-#                 "spl-token-faucet")
-#     byte_code_path = Path(ROOT_DIR, "tests", "data",
-#                 "spl-token-faucet", "target", "deploy", "spl_token_faucet.so")
-#     keypair_path = Path(ROOT_DIR, "tests", "data",
-#                 "spl-token-faucet", "target", "deploy", "spl_token_faucet-keypair.json")
-#     anchor_version="0.18.0"
-
-#     p1 = subprocess.run(f'avm use {anchor_version}',cwd=program_work_dir_path)
-
-#     interface = {"abi": [], "bytecode": b""}
-#     max_priority_fee_per_gas = 1000000000
-#     max_fee_per_gas = 1000000000
-
 
 def test_load_contract_interface():
     """Test the load_contract_interface method."""
@@ -393,15 +370,18 @@ def test_load_contract_interface():
                 "dummy_contract", "build", "idl.json")
     result = SolanaApi.load_contract_interface(path)
 
-    assert "name" in result
+    assert "name" in result['idl']
 
 
 def test_load_contract_instance():
     """Test the load_contract_interface method."""
-    path = Path(ROOT_DIR, "tests", "data",
-                "dummy_contract", "build", "idl.json")
+    idl_path = Path(ROOT_DIR, "tests", "data",
+                    "spl-token-faucet", "target", "idl", "spl_token_faucet.json")
+    bytecode_path = Path(ROOT_DIR, "tests", "data",
+                         "spl-token-faucet", "target", "deploy", "spl_token_faucet.so")
     sa = SolanaApi()
-    result = sa.load_contract_interface(path)
+    result = sa.load_contract_interface(
+        idl_file_path=idl_path, bytecode_path=bytecode_path)
     pid = "ZETAxsqBRek56DhiGXrn75yj2NHU3aYUnxvHXpkf3aD"
     instance = SolanaApi.get_contract_instance(SolanaApi,
                                                contract_interface=result, contract_address=pid)
@@ -452,26 +432,69 @@ def test_get_transaction_transfer_logs(solana_private_key_file):
 @pytest.mark.ledger
 def test_deploy_program():
     """Test the deploy contract method."""
-    program_work_dir_path = Path(ROOT_DIR, "tests", "data",
-                                 "spl-token-faucet", "target", "idl", "spl_token_faucet.json")
+    idl_path = Path(ROOT_DIR, "tests", "data",
+                    "spl-token-faucet", "target", "idl", "spl_token_faucet.json")
     bytecode_path = Path(ROOT_DIR, "tests", "data",
                          "spl-token-faucet", "target", "deploy", "spl_token_faucet.so")
     sa = SolanaApi()
 
-    interface = sa.load_contract_interface(idl_file_path=program_work_dir_path)
+    interface = sa.load_contract_interface(
+        idl_file_path=idl_path, bytecode_path=bytecode_path)
 
-    payer = SolanaCrypto()
+    payer = SolanaCrypto("payer.txt")
     program = SolanaCrypto()
+    print(payer.address)
+    print(program.address)
+
     payer.dump("payer.txt")
     program.dump("program.txt")
+
     faucet = SolanaFaucetApi()
 
-    tx = faucet.get_wealth(payer.address, 10)
-    time.sleep(15)
+    tx = faucet.get_wealth(payer.address, 20)
+
+    transaction_receipt, is_settled = _wait_get_receipt(sa, tx)
+    assert is_settled is True
+
     balance = sa.get_balance(payer.address)
-    assert balance == 10 * LAMPORTS_PER_SOL
+    assert balance >= 20 * LAMPORTS_PER_SOL
 
-    instance = sa.get_contract_instance(
-        contract_interface=interface, contract_address=program.address, bytecode_path=bytecode_path)
+    if interface["bytecode"] is None:
+        raise ValueError("Bytecode not found.")
 
-    txn = sa.get_deploy_transaction()
+    data = interface["bytecode"]
+    bytecode_len = len(data)
+    rent_exempt_amount = sa._api.get_minimum_balance_for_rent_exemption(
+        bytecode_len)
+    rent_exempt_amount = rent_exempt_amount.value
+
+    create_account_tx = sa.create_default_account(
+        payer.public_key,
+        program.public_key,
+        rent_exempt_amount,
+        bytecode_len)
+
+    nonce = sa.generate_tx_nonce()
+
+    signed_txn = payer.sign_transaction(
+        create_account_tx, nonce, [program])
+    tx_digest = sa.send_signed_transaction(signed_txn)
+
+    transaction_receipt, is_settled = _wait_get_receipt(sa, tx_digest)
+    assert is_settled is True
+
+    ####
+
+    txn = sa.get_deploy_transaction(
+        contract_interface=interface,
+        contract_keypair=program,
+        payer_keypair=payer
+    )
+
+    signed_txn = payer.sign_transaction(txn, [program])
+    tx_digest = sa.send_signed_transaction(signed_txn)
+
+    time.sleep(5)
+    tx_reciept = sa.get_transaction_receipt(tx_digest)
+    settled = sa.is_transaction_settled(tx_reciept)
+    assert settled

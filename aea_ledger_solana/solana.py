@@ -22,6 +22,8 @@ import json
 import logging
 import hashlib
 import base64
+import base58
+
 
 import threading
 import warnings
@@ -55,10 +57,10 @@ from anchorpy import Program
 from anchorpy.idl import _decode_idl_account, _idl_address
 from anchorpy.coder.accounts import ACCOUNT_DISCRIMINATOR_SIZE
 from solana.system_program import TransferParams, transfer
-from solana.transaction import Transaction
+from solana.transaction import Transaction, TransactionInstruction, AccountMeta
 from solana.system_program import create_account, SYS_PROGRAM_ID
 from solana.system_program import CreateAccountParams
-from borsh_construct import String, CStruct, U8, U32
+from borsh_construct import String, CStruct, U8, U32, Vec
 
 
 from lru import LRU
@@ -124,9 +126,9 @@ class SolanaCrypto(Crypto[Keypair]):
         :return: a private key string in hex format
         """
 
-        return self.entity.secret_key.hex()
+        return base58.b58encode(self.entity.secret_key).decode()
 
-    @property
+    @ property
     def public_key(self) -> str:
         """
         Return a public key in hex format.
@@ -136,7 +138,7 @@ class SolanaCrypto(Crypto[Keypair]):
         """
         return self._public_key
 
-    @property
+    @ property
     def address(self) -> str:
         """
         Return the address for the key pair.
@@ -145,7 +147,7 @@ class SolanaCrypto(Crypto[Keypair]):
         """
         return self._address.to_base58().decode()
 
-    @classmethod
+    @ classmethod
     def load_private_key_from_path(
         cls, file_name: str, password: Optional[str] = None
     ) -> Keypair:
@@ -159,7 +161,7 @@ class SolanaCrypto(Crypto[Keypair]):
         private_key = open(file_name, "r").read()
 
         try:
-            key = Keypair.from_secret_key(bytes.fromhex(private_key))
+            key = Keypair.from_secret_key(base58.b58decode(private_key))
         except Exception as e:
 
             raise KeyIsIncorrect(
@@ -182,7 +184,7 @@ class SolanaCrypto(Crypto[Keypair]):
 
         return signed_msg
 
-    def sign_transaction(self, transaction: JSONLike, recent_blockhash: Blockhash, signers: Optional[list] = []) -> JSONLike:
+    def sign_transaction(self, transaction: JSONLike, nonce: str, signers: Optional[list] = []) -> JSONLike:
         """
         Sign a transaction in bytes string form.
 
@@ -191,30 +193,16 @@ class SolanaCrypto(Crypto[Keypair]):
         :return: signed transaction
         """
 
-        keypair = Keypair.from_secret_key(bytes.fromhex(self.private_key))
-        signers = [Keypair.from_secret_key(bytes.fromhex(
+        keypair = Keypair.from_secret_key(base58.b58decode(self.private_key))
+        signers = [Keypair.from_secret_key(base58.b58decode(
             signer.private_key)) for signer in signers]
-        transaction.recent_blockhash = recent_blockhash
+        transaction.recent_blockhash = nonce
         signers.append(keypair)
+
         try:
             transaction.sign(*signers)
         except Exception as e:
-            print(e)
             raise Exception(e)
-        return transaction
-
-    def sign_partial(self, transaction: JSONLike, recent_blockhash: Blockhash) -> JSONLike:
-        """
-        Sign a transaction in bytes string form.
-
-        :param transaction: the transaction to be signed
-        :param recent_blockhash: a recent blockhash
-        :return: signed transaction
-        """
-
-        keypair = Keypair.from_secret_key(bytes.fromhex(self.private_key))
-        transaction.recent_blockhash = recent_blockhash
-        transaction.sign_partial(keypair)
 
         return transaction
 
@@ -282,6 +270,7 @@ class SolanaHelper(Helper):
                                 idl_file_path: Optional[Path] = None,
                                 program_address: Optional[str] = None,
                                 rpc_api: Optional[str] = None,
+                                bytecode_path: Optional[bytes] = None,
                                 ) -> Dict[str, str]:
         """
         Load contract interface.
@@ -292,6 +281,11 @@ class SolanaHelper(Helper):
         :return: the interface
         """
         contract_interface = None
+        if bytecode_path is not None:
+            in_file = open(bytecode_path, "rb")
+            bytecode = in_file.read()
+        else:
+            bytecode = None
         if program_address is not None and rpc_api is not None:
             try:
                 base = PublicKey.find_program_address(
@@ -309,14 +303,15 @@ class SolanaHelper(Helper):
                 inflated_idl = _pako_inflate(
                     bytes(idl_account["data"])).decode()
                 json_idl = json.loads(inflated_idl)
-                return json_idl
+                return {"idl": json_idl, "bytecode": bytecode}
             except Exception as e:
                 raise Exception("Could not locate IDL")
 
         elif idl_file_path is not None:
             with open_file(idl_file_path, "r") as interface_file_solana:
-                contract_interface = json.load(interface_file_solana)
-            return contract_interface
+                json_idl = json.load(interface_file_solana)
+
+            return {"idl": json_idl, "bytecode": bytecode}
         else:
             raise Exception("Could not locate IDL")
 
@@ -414,7 +409,6 @@ class SolanaHelper(Helper):
         # pubkey = signature_obj.recover_public_key_from_msg_hash(hash_bytes)
         return "TOBEIMPLEMENTED"
 
-    @ staticmethod
     def generate_tx_nonce(self) -> str:
         """
         Generate a unique hash to distinguish transactions with the same terms.
@@ -514,7 +508,7 @@ class SolanaApi(LedgerApi, SolanaHelper):
     def _try_get_balance(self, address: Address, **_kwargs: Any) -> Optional[int]:
         """Get the balance of a given account."""
         response = self._api.get_balance(
-            PublicKey(address))  # pylint: disable=no-member
+            PublicKey(address), commitment="processed")  # pylint: disable=no-member
         return response.value
 
     def get_state(
@@ -701,6 +695,29 @@ class SolanaApi(LedgerApi, SolanaHelper):
         # pylint: disable=no-member
         return json.loads(tx.value.to_json())
 
+    def create_default_account(self, from_pubkey: PublicKey, new_account_pubkey: PublicKey, lamports: int, space: int, program_id: Optional[PublicKey] = SYS_PROGRAM_ID):
+        """
+        Build a create account transaction.
+
+        :param from_pubkey: the sender public key
+        :param new_account_pubkey: the new account public key
+        :param lamports: the amount of lamports to send
+        :param space: the space to allocate
+        :param program_id: the program id
+        :return: the tx, if present
+        """
+        params = CreateAccountParams(
+            from_pubkey,
+            new_account_pubkey,
+            lamports,
+            space,
+            program_id
+        )
+        createAccountInstruction = create_account(params)
+        txn = Transaction().add(
+            createAccountInstruction)
+        return txn
+
     def get_contract_instance(
         self, contract_interface: Dict[str, str], contract_address: str, bytecode_path: Optional[Path] = None
     ) -> Any:
@@ -726,9 +743,9 @@ class SolanaApi(LedgerApi, SolanaHelper):
 
     def get_deploy_transaction(  # pylint: disable=arguments-differ
         self,
-        contract_instance: Dict[Any, Any],
-        contract_address: Address,
-        fee_payer_address: Address,
+        contract_interface: Dict[Any, Any],
+        contract_keypair: Address,
+        payer_keypair: Address,
         raise_on_try: bool = False,
         **kwargs: Any,
     ) -> Optional[JSONLike]:
@@ -737,68 +754,94 @@ class SolanaApi(LedgerApi, SolanaHelper):
         **TOBEIMPLEMENTED**
         Get the transaction to deploy the smart contract.
 
-        :param contract_interface: the contract interface.
+        :param contract_instance: the contract instance.
         :param deployer_address: The address that will deploy the contract.
         :param raise_on_try: whether the method will raise or log on error
         :param kwargs: keyword arguments
         :return: the transaction dictionary.
         https://github.com/solana-labs/solana-web3.js/blob/d14dcf6c8a8f979ecb7ee16dea37e721e3201db1/src/loader.ts
         """
-        def getMinNumSignatures(dataLength):
-            return (2 * (dataLength/chunk_size) + 1 + 1)
-        data = b'123456789'
+
+        if contract_interface["bytecode"] is None:
+            raise ValueError("Bytecode not found.")
+
+        data = contract_interface["bytecode"]
+        bytecode_len = len(data)
         # fund account
-
+        rent_exempt_amount = self._api.get_minimum_balance_for_rent_exemption(
+            bytecode_len)
         ###
-
+        sol_needed = rent_exempt_amount.value/LAMPORTS_PER_SOL
         PACKET_DATA_SIZE = 1280 - 40 - 8
         chunk_size = PACKET_DATA_SIZE - 300
-        balanceNeeded = RENT_EXEMPT_AMOUNT
-        try:
-            # Create Program Account
-            params = CreateAccountParams(
-                from_pubkey=payer.public_key,
-                new_account_pubkey=program.public_key,
-                lamports=RENT_EXEMPT_AMOUNT,
-                space=len(data),
-                program_id=SYS_PROGRAM_ID
-            )
-            createAccountInstruction = create_account(params)
-            txn = Transaction().add(createAccountInstruction)
-        except Exception as e:
-            print(e)
-        ##
-
-        # submit transaction
-        try:
-            nonce = self.generate_tx_nonce(self)
-            signed_txn = payer.sign_transaction(txn, nonce)
-            tx_digest = self.send_signed_transaction(signed_txn,)
-            time.sleep(15)
-            settled = self.is_transaction_settled(tx_digest)
-            assert settled
-        except Exception as e:
-            print(e)
 
         payload_schema = CStruct(
             "instruction" / U32,
             "offset" / U32,
             "bytesLength" / U32,
             "bytesLengthPadding" / U32,
-            "bytes" / U8[24],
+            "bytes" / Vec(U8),
         )
 
-        def construct_payload(instruction_variant: 1, key: str, value: str):
-            """Generate a serialized instructionVariant"""
-            return payload_schema.build({"id": instruction_variant, "key": key, "value": value})
+        array = data
+        print("total data: "+str(len(array)))
 
-        while len(data) > 0:
+        offset = 0
+        count = 0
+        while len(array) > 0:
 
-            payload_ser = construct_payload()
+            bytes = array[:chunk_size]
+            try:
+                data_encoded = payload_schema.build(
+                    {
+                        "instruction": 0,
+                        "offset": offset,
+                        "bytesLength": 0,
+                        "bytesLengthPadding": 0,
+                        "bytes": bytes,
+                    })
 
-        # Write Program Data
+                offset += chunk_size
+                array = array[chunk_size:]
+                count += 1
+                print("offset: "+str(offset))
+                print("data left: "+str(len(array)))
+                print("count: "+str(count))
+                instr = TransactionInstruction(
+                    keys=[
+                        AccountMeta(
+                            pubkey=contract_keypair.public_key, is_signer=True, is_writable=True),
+                        AccountMeta(
+                            pubkey=payer_keypair.public_key, is_signer=True, is_writable=False)],
+                    program_id=SYS_PROGRAM_ID,
+                    data=data_encoded,
+                )
+                txn = Transaction(
+                    fee_payer=payer_keypair.public_key).add(instr)
+                nonce = self.generate_tx_nonce()
+                contract_keypair.sign_transaction(
+                    txn, nonce, [payer_keypair])
+                # signed_txn = contract_keypair.sign_transaction(
+                #     txn, nonce, [])
 
-        return {}
+                self._api.send_raw_transaction(txn.serialize(),)
+                tx_digest = self.send_signed_transaction(txn)
+
+                time.sleep(1)
+            except Exception as e:
+                print(e)
+            # tx_reciept = self.get_transaction_receipt(tx_digest)
+            # settled = self.is_transaction_settled(tx_reciept)
+            # assert settled
+
+        print(offset)
+        # while len(data) > 0:
+
+        # payload_ser = construct_payload()
+
+        # # Write Program Data
+
+        # return {}
 
     @ classmethod
     def contract_method_call(
