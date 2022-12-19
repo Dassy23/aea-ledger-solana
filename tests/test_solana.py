@@ -38,6 +38,7 @@ from aea_ledger_solana import (
     SolanaCrypto,
     SolanaFaucetApi,
     LAMPORTS_PER_SOL,
+    PublicKey
 )
 from solana.transaction import Transaction
 from solana.publickey import PublicKey
@@ -432,10 +433,11 @@ def test_get_transaction_transfer_logs(solana_private_key_file):
 @pytest.mark.ledger
 def test_deploy_program():
     """Test the deploy contract method."""
+
     idl_path = Path(ROOT_DIR, "tests", "data",
-                    "spl-token-faucet", "target", "idl", "spl_token_faucet.json")
+                    "tic-tac-toe", "target1", "idl", "tic_tac_toe.json")
     bytecode_path = Path(ROOT_DIR, "tests", "data",
-                         "spl-token-faucet", "target", "deploy", "spl_token_faucet.so")
+                         "tic-tac-toe", "tic_tac_toe.so")
     sa = SolanaApi()
 
     interface = sa.load_contract_interface(
@@ -443,45 +445,54 @@ def test_deploy_program():
 
     payer = SolanaCrypto("payer.txt")
     program = SolanaCrypto()
-    print(payer.address)
-    print(program.address)
-
+    print("")
+    print("Payer address: " + payer.address)
+    print("Program address: " + program.address)
     payer.dump("payer.txt")
     program.dump("program.txt")
 
-    faucet = SolanaFaucetApi()
+    init = True
+    if init:
+        faucet = SolanaFaucetApi()
 
-    tx = faucet.get_wealth(payer.address, 20)
+        tx = faucet.get_wealth(payer.address, 1)
 
-    transaction_receipt, is_settled = _wait_get_receipt(sa, tx)
-    assert is_settled is True
+        transaction_receipt, is_settled = _wait_get_receipt(sa, tx)
+        assert is_settled is True
 
-    balance = sa.get_balance(payer.address)
-    assert balance >= 20 * LAMPORTS_PER_SOL
+        balance = sa.get_balance(payer.address)
+        assert balance >= 2 * LAMPORTS_PER_SOL
+        print("Payer Balance: " + str(balance/LAMPORTS_PER_SOL) + " SOL")
 
-    if interface["bytecode"] is None:
-        raise ValueError("Bytecode not found.")
+        # time.sleep(5)
+        if interface["bytecode"] is None:
+            raise ValueError("Bytecode not found.")
 
-    data = interface["bytecode"]
-    bytecode_len = len(data)
-    rent_exempt_amount = sa._api.get_minimum_balance_for_rent_exemption(
-        bytecode_len)
-    rent_exempt_amount = rent_exempt_amount.value
+        data = interface["bytecode"]
+        bytecode_len = len(data)
+        rent_exempt_amount = sa._api.get_minimum_balance_for_rent_exemption(
+            bytecode_len)
+        rent_exempt_amount = rent_exempt_amount.value
 
-    create_account_tx = sa.create_default_account(
-        payer.public_key,
-        program.public_key,
-        rent_exempt_amount,
-        bytecode_len)
+        create_account_tx = sa.create_default_account(
+            payer.public_key,
+            program.public_key,
+            rent_exempt_amount,
+            bytecode_len,
+            PublicKey("BPFLoader2111111111111111111111111111111111"))
 
-    nonce = sa.generate_tx_nonce()
+        nonce = sa.generate_tx_nonce()
 
-    signed_txn = payer.sign_transaction(
-        create_account_tx, nonce, [program])
-    tx_digest = sa.send_signed_transaction(signed_txn)
+        signed_txn = payer.sign_transaction(
+            create_account_tx, nonce, [program])
+        tx_digest = sa.send_signed_transaction(signed_txn)
 
-    transaction_receipt, is_settled = _wait_get_receipt(sa, tx_digest)
-    assert is_settled is True
+        transaction_receipt, is_settled = _wait_get_receipt(sa, tx_digest)
+        assert is_settled is True
+        print("Program Account created: " + tx_digest)
+
+    balance = sa.get_balance(program.address)
+    print("Program Balance: " + str(balance/LAMPORTS_PER_SOL) + " SOL")
 
     ####
 

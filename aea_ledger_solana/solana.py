@@ -42,7 +42,7 @@ from aea.helpers.io import open_file
 
 from solana.publickey import PublicKey
 from solana.rpc.api import Client
-from solana.rpc import types
+from solana.blockhash import Blockhash, BlockhashCache
 from solana.keypair import Keypair
 from solders.signature import Signature
 from anchorpy import Idl
@@ -51,7 +51,6 @@ from cryptography.fernet import Fernet
 
 from pathlib import Path
 import json
-from solana.blockhash import Blockhash
 from solana.transaction import Transaction
 from anchorpy import Program
 from anchorpy.idl import _decode_idl_account, _idl_address
@@ -72,7 +71,8 @@ _default_logger = logging.getLogger(__name__)
 
 _SOLANA = "solana"
 TESTNET_NAME = "testnet"
-DEFAULT_ADDRESS = "http://127.0.0.1:8899"
+# DEFAULT_ADDRESS = "https://api.devnet.solana.com"
+DEFAULT_ADDRESS = "http://localhost:8899"
 DEFAULT_CHAIN_ID = "solana"
 DEFAULT_CURRENCY_DENOM = "lamports"
 RENT_EXEMPT_AMOUNT = 1000000
@@ -417,12 +417,16 @@ class SolanaHelper(Helper):
         :param client: the address of the client.
         :return: return the hash in hex.
         """
-
-        result = self._api.get_latest_blockhash()
-        blockhash_json = result.value.to_json()
-        blockhash = json.loads(blockhash_json)
-        hash = blockhash['blockhash']
-        return hash
+        try:
+            blockhash = self.BlockhashCache.get()
+            return blockhash
+        except Exception as e:
+            result = self._api.get_latest_blockhash()
+            blockhash_json = result.value.to_json()
+            blockhash = json.loads(blockhash_json)
+            self.BlockhashCache.set(
+                blockhash=blockhash['blockhash'], slot=result.context.slot)
+            return blockhash['blockhash']
 
     @ staticmethod
     def get_contract_address(tx_receipt: JSONLike) -> Optional[list[str]]:
@@ -478,6 +482,14 @@ class SolanaApi(LedgerApi, SolanaHelper):
         self._api = Client(
             endpoint=kwargs.pop("address", DEFAULT_ADDRESS)
         )
+
+        self.BlockhashCache = BlockhashCache()
+        result = self._api.get_latest_blockhash()
+        blockhash_json = result.value.to_json()
+        blockhash = json.loads(blockhash_json)
+        hash = blockhash['blockhash']
+        self.BlockhashCache.set(blockhash=hash, slot=result.context.slot)
+
         self._chain_id = kwargs.pop("chain_id", DEFAULT_CHAIN_ID)
 
     @ property
@@ -714,7 +726,7 @@ class SolanaApi(LedgerApi, SolanaHelper):
             program_id
         )
         createAccountInstruction = create_account(params)
-        txn = Transaction().add(
+        txn = Transaction(fee_payer=from_pubkey).add(
             createAccountInstruction)
         return txn
 
@@ -766,15 +778,9 @@ class SolanaApi(LedgerApi, SolanaHelper):
             raise ValueError("Bytecode not found.")
 
         data = contract_interface["bytecode"]
-        bytecode_len = len(data)
-        # fund account
-        rent_exempt_amount = self._api.get_minimum_balance_for_rent_exemption(
-            bytecode_len)
-        ###
-        sol_needed = rent_exempt_amount.value/LAMPORTS_PER_SOL
         PACKET_DATA_SIZE = 1280 - 40 - 8
         chunk_size = PACKET_DATA_SIZE - 300
-
+        BPF_loader = PublicKey("BPFLoader2111111111111111111111111111111111")
         payload_schema = CStruct(
             "instruction" / U32,
             "offset" / U32,
@@ -783,13 +789,12 @@ class SolanaApi(LedgerApi, SolanaHelper):
             "bytes" / Vec(U8),
         )
 
-        array = data
-        print("total data: "+str(len(array)))
-
         offset = 0
         count = 0
+        array = data
+        print("total data: "+str(len(array)))
+        nonce = self.generate_tx_nonce()
         while len(array) > 0:
-
             bytes = array[:chunk_size]
             try:
                 data_encoded = payload_schema.build(
@@ -800,41 +805,66 @@ class SolanaApi(LedgerApi, SolanaHelper):
                         "bytesLengthPadding": 0,
                         "bytes": bytes,
                     })
+                decode = payload_schema.parse(data_encoded)
 
+                instr = TransactionInstruction(
+                    keys=[
+                        AccountMeta(
+                            pubkey=contract_keypair.public_key, is_signer=True, is_writable=True)],
+                    program_id=BPF_loader,
+                    data=data_encoded,
+                )
+                txn = Transaction(
+                    fee_payer=payer_keypair.public_key).add(instr)
+                contract_keypair.sign_transaction(
+                    txn, nonce, [payer_keypair])
+                # signed_txn = contract_keypair.sign_transaction(
+                #     txn, nonce, [])
+
+                tx_digest = self.send_signed_transaction(txn)
+                print(tx_digest)
                 offset += chunk_size
                 array = array[chunk_size:]
                 count += 1
                 print("offset: "+str(offset))
                 print("data left: "+str(len(array)))
                 print("count: "+str(count))
-                instr = TransactionInstruction(
-                    keys=[
-                        AccountMeta(
-                            pubkey=contract_keypair.public_key, is_signer=True, is_writable=True),
-                        AccountMeta(
-                            pubkey=payer_keypair.public_key, is_signer=True, is_writable=False)],
-                    program_id=SYS_PROGRAM_ID,
-                    data=data_encoded,
-                )
-                txn = Transaction(
-                    fee_payer=payer_keypair.public_key).add(instr)
-                nonce = self.generate_tx_nonce()
-                contract_keypair.sign_transaction(
-                    txn, nonce, [payer_keypair])
-                # signed_txn = contract_keypair.sign_transaction(
-                #     txn, nonce, [])
-
-                self._api.send_raw_transaction(txn.serialize(),)
-                tx_digest = self.send_signed_transaction(txn)
-
                 time.sleep(1)
             except Exception as e:
                 print(e)
             # tx_reciept = self.get_transaction_receipt(tx_digest)
             # settled = self.is_transaction_settled(tx_reciept)
             # assert settled
+        print("Account data loaded")
 
-        print(offset)
+        # make executable
+        execution_schema = CStruct(
+            "instruction" / U32
+        )
+
+        data_encoded = execution_schema.build(
+            {
+                "instruction": 1
+            })
+        decode = execution_schema.parse(data_encoded)
+
+        instr = TransactionInstruction(
+            keys=[
+                AccountMeta(
+                    pubkey=contract_keypair.public_key, is_signer=True, is_writable=True),
+                AccountMeta(
+                    pubkey=PublicKey("SysvarRent111111111111111111111111111111111"), is_signer=False, is_writable=False)],
+            program_id=BPF_loader,
+            data=data_encoded,
+        )
+        txn = Transaction(
+            fee_payer=payer_keypair.public_key).add(instr)
+        nonce = self.generate_tx_nonce()
+        contract_keypair.sign_transaction(
+            txn, nonce, [payer_keypair])
+        tx_digest = self.send_signed_transaction(txn)
+        print(tx_digest)
+
         # while len(data) > 0:
 
         # payload_ser = construct_payload()
@@ -974,6 +1004,7 @@ class SolanaFaucetApi(FaucetApi):
         except Exception as e:
             _default_logger.error(
                 "Response: {} , e: {}".format("airdrop failed", e))
+            raise Exception(e)
         response = (json.loads(resp.to_json()))
         if response['result'] == None:
             _default_logger.error("Response: {}".format("airdrop failed"))
