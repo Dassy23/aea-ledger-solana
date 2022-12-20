@@ -31,7 +31,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union, cast
 import zlib
 import time
-
+from ast import literal_eval
 from aea.common import Address, JSONLike
 from aea.crypto.base import Crypto, FaucetApi, Helper, LedgerApi
 from aea.crypto.helpers import DecryptError, KeyIsIncorrect, hex_to_bytes_for_key
@@ -63,8 +63,6 @@ from borsh_construct import String, CStruct, U8, U32, Vec
 
 
 from lru import LRU
-# import web3._utils.request
-# from web3 import Web3
 
 
 _default_logger = logging.getLogger(__name__)
@@ -149,24 +147,34 @@ class SolanaCrypto(Crypto[Keypair]):
 
     @ classmethod
     def load_private_key_from_path(
-        cls, file_name: str, password: Optional[str] = None
+        cls, file_name: Path, password: Optional[str] = None
     ) -> Keypair:
         """
-        Load a private key in base58 format from a file.
+        Load a private key in base58 or bytes format from a file.
 
         :param file_name: the path to the hex file.
         :param password: the password to encrypt/decrypt the private key.
         :return: the Entity.
         """
-        private_key = open(file_name, "r").read()
+        if file_name.name.endswith(".json"):
+            private_key = open(file_name, "r").read()
+            try:
+                # t = bytes(literal_eval(private_key))
+                key = Keypair.from_secret_key(bytes(literal_eval(private_key)))
+            except Exception as e:
 
-        try:
-            key = Keypair.from_secret_key(base58.b58decode(private_key))
-        except Exception as e:
+                raise KeyIsIncorrect(
+                    f"Error on key `{file_name}` load! : Error: {repr(e)} "
+                ) from e
+        else:
+            private_key = open(file_name, "r").read()
+            try:
+                key = Keypair.from_secret_key(base58.b58decode(private_key))
+            except Exception as e:
 
-            raise KeyIsIncorrect(
-                f"Error on key `{file_name}` load! : Error: {repr(e)} "
-            ) from e
+                raise KeyIsIncorrect(
+                    f"Error on key `{file_name}` load! : Error: {repr(e)} "
+                ) from e
 
         return key
 
@@ -483,7 +491,7 @@ class SolanaApi(LedgerApi, SolanaHelper):
             endpoint=kwargs.pop("address", DEFAULT_ADDRESS)
         )
 
-        self.BlockhashCache = BlockhashCache()
+        self.BlockhashCache = BlockhashCache(ttl=10)
         result = self._api.get_latest_blockhash()
         blockhash_json = result.value.to_json()
         blockhash = json.loads(blockhash_json)
@@ -780,7 +788,7 @@ class SolanaApi(LedgerApi, SolanaHelper):
         data = contract_interface["bytecode"]
         PACKET_DATA_SIZE = 1280 - 40 - 8
         chunk_size = PACKET_DATA_SIZE - 300
-        BPF_loader = PublicKey("BPFLoader2111111111111111111111111111111111")
+        BPF_loader = PublicKey("BPFLoaderUpgradeab1e11111111111111111111111")
         payload_schema = CStruct(
             "instruction" / U32,
             "offset" / U32,
@@ -793,10 +801,10 @@ class SolanaApi(LedgerApi, SolanaHelper):
         count = 0
         array = data
         print("total data: "+str(len(array)))
-        nonce = self.generate_tx_nonce()
         while len(array) > 0:
             bytes = array[:chunk_size]
             try:
+                nonce = self.generate_tx_nonce()
                 data_encoded = payload_schema.build(
                     {
                         "instruction": 0,
@@ -829,7 +837,7 @@ class SolanaApi(LedgerApi, SolanaHelper):
                 print("offset: "+str(offset))
                 print("data left: "+str(len(array)))
                 print("count: "+str(count))
-                time.sleep(1)
+                # time.sleep(1)
             except Exception as e:
                 print(e)
             # tx_reciept = self.get_transaction_receipt(tx_digest)

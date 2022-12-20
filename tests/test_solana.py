@@ -22,9 +22,8 @@
 import hashlib
 import logging
 import json
-import random
-import re
-import os
+import struct
+import array
 import subprocess
 import time
 from pathlib import Path
@@ -38,10 +37,11 @@ from aea_ledger_solana import (
     SolanaCrypto,
     SolanaFaucetApi,
     LAMPORTS_PER_SOL,
-    PublicKey
+    PublicKey,
+    Keypair
 )
 from solana.transaction import Transaction
-from solana.publickey import PublicKey
+from ast import literal_eval
 
 
 from aea.common import JSONLike
@@ -435,16 +435,32 @@ def test_deploy_program():
     """Test the deploy contract method."""
 
     idl_path = Path(ROOT_DIR, "tests", "data",
-                    "tic-tac-toe", "target1", "idl", "tic_tac_toe.json")
+                    "tic-tac-toe", "target", "idl", "tic_tac_toe.json")
     bytecode_path = Path(ROOT_DIR, "tests", "data",
-                         "tic-tac-toe", "tic_tac_toe.so")
+                         "tic-tac-toe", "target", "deploy", "tic_tac_toe.so")
+    program_keypair_path = Path(ROOT_DIR, "tests", "data",
+                                "tic-tac-toe", "target", "deploy", "tic_tac_toe-keypair.json")
+    payer_keypair_path = Path(ROOT_DIR, "payer.txt")
+    payer_keypair_json_path = Path(ROOT_DIR, "payer.json")
+
     sa = SolanaApi()
 
     interface = sa.load_contract_interface(
         idl_file_path=idl_path, bytecode_path=bytecode_path)
 
-    payer = SolanaCrypto("payer.txt")
-    program = SolanaCrypto()
+    program = SolanaCrypto(program_keypair_path)
+    payer = SolanaCrypto(payer_keypair_path)
+    try:
+        value = struct.unpack('64B', payer.entity.secret_key)
+        uint8_array = array.array('B', value)
+        arr = uint8_array.tolist()
+
+        with open('payer.json', 'w') as f:
+            json.dump(arr, f)
+
+    except Exception as e:
+        print(e)
+
     print("")
     print("Payer address: " + payer.address)
     print("Program address: " + program.address)
@@ -455,7 +471,7 @@ def test_deploy_program():
     if init:
         faucet = SolanaFaucetApi()
 
-        tx = faucet.get_wealth(payer.address, 1)
+        tx = faucet.get_wealth(payer.address, 2)
 
         transaction_receipt, is_settled = _wait_get_receipt(sa, tx)
         assert is_settled is True
@@ -474,26 +490,31 @@ def test_deploy_program():
             bytecode_len)
         rent_exempt_amount = rent_exempt_amount.value
 
-        create_account_tx = sa.create_default_account(
-            payer.public_key,
-            program.public_key,
-            rent_exempt_amount,
-            bytecode_len,
-            PublicKey("BPFLoader2111111111111111111111111111111111"))
+        # create_account_tx = sa.create_default_account(
+        #     payer.public_key,
+        #     program.public_key,
+        #     rent_exempt_amount,
+        #     bytecode_len,
+        #     PublicKey("BPFLoaderUpgradeab1e11111111111111111111111"))
 
-        nonce = sa.generate_tx_nonce()
+        # nonce = sa.generate_tx_nonce()
 
-        signed_txn = payer.sign_transaction(
-            create_account_tx, nonce, [program])
-        tx_digest = sa.send_signed_transaction(signed_txn)
+        # signed_txn = payer.sign_transaction(
+        #     create_account_tx, nonce, [program])
+        # tx_digest = sa.send_signed_transaction(signed_txn)
 
-        transaction_receipt, is_settled = _wait_get_receipt(sa, tx_digest)
-        assert is_settled is True
-        print("Program Account created: " + tx_digest)
+        # transaction_receipt, is_settled = _wait_get_receipt(sa, tx_digest)
+        # assert is_settled is True
+        # print("Program Account created: " + tx_digest)
 
     balance = sa.get_balance(program.address)
     print("Program Balance: " + str(balance/LAMPORTS_PER_SOL) + " SOL")
+    cmd = f'''solana program deploy --url http://localhost:8899 -v --keypair {str(payer_keypair_json_path)} --program-id {str(program_keypair_path)} {str(bytecode_path)}'''
 
+    result = subprocess.run(
+        [cmd], capture_output=True, text=True, shell=True)
+    print("stdout:", result.stdout)
+    print("stderr:", result.stderr)
     ####
 
     txn = sa.get_deploy_transaction(
