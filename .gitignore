@@ -7,8 +7,6 @@ __pycache__/
 *.py[cod]
 *$py.class
 
-# C extensions
-*.so
 
 # Distribution / packaging
 .Python
@@ -38,7 +36,7 @@ Pipfile.lock
 
 # Installer logs
 pip-log.txt
-pip-delete-this-directory.txt
+pip-delete-this-directory.txt`
 
 # Unit test / coverage reports
 htmlcov/
@@ -155,6 +153,6 @@ coverage.txt
 temp/
 agent_name/
 leak_report
-solana_private_key.txt
+*solana_private_key.txt
 test-ledger
 Pipfile*

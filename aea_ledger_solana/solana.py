@@ -18,22 +18,21 @@
 #
 # ------------------------------------------------------------------------------
 """Solana module wrapping the public and private key cryptography and ledger api."""
-import decimal
 import json
 import logging
 import hashlib
 import base64
+import base58
+import struct
+import array
+import subprocess
+import tempfile
 
-import threading
-import warnings
-from copy import deepcopy
+
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union, cast
-from uuid import uuid4
-from ast import literal_eval
 import zlib
-
-
+from ast import literal_eval
 from aea.common import Address, JSONLike
 from aea.crypto.base import Crypto, FaucetApi, Helper, LedgerApi
 from aea.crypto.helpers import DecryptError, KeyIsIncorrect, hex_to_bytes_for_key
@@ -44,7 +43,7 @@ from aea.helpers.io import open_file
 
 from solana.publickey import PublicKey
 from solana.rpc.api import Client
-from solana.rpc import types
+from solana.blockhash import Blockhash, BlockhashCache
 from solana.keypair import Keypair
 from solders.signature import Signature
 from anchorpy import Idl
@@ -53,27 +52,25 @@ from cryptography.fernet import Fernet
 
 from pathlib import Path
 import json
-from solana.blockhash import Blockhash
 from solana.transaction import Transaction
 from anchorpy import Program
 from anchorpy.idl import _decode_idl_account, _idl_address
 from anchorpy.coder.accounts import ACCOUNT_DISCRIMINATOR_SIZE
 from solana.system_program import TransferParams, transfer
-from solana.transaction import Transaction
+from solana.transaction import Transaction, TransactionInstruction, AccountMeta
 from solana.system_program import create_account, SYS_PROGRAM_ID
 from solana.system_program import CreateAccountParams
+from borsh_construct import String, CStruct, U8, U32, Vec
 
 
 from lru import LRU
-# import web3._utils.request
-# from web3 import Web3
 
 
 _default_logger = logging.getLogger(__name__)
 
 _SOLANA = "solana"
-TESTNET_NAME = "testnet"
-DEFAULT_ADDRESS = "http://127.0.0.1:8899"
+TESTNET_NAME = "n/a"
+DEFAULT_ADDRESS = "https://api.devnet.solana.com"
 DEFAULT_CHAIN_ID = "solana"
 DEFAULT_CURRENCY_DENOM = "lamports"
 RENT_EXEMPT_AMOUNT = 1000000
@@ -127,9 +124,9 @@ class SolanaCrypto(Crypto[Keypair]):
         :return: a private key string in hex format
         """
 
-        return self.entity.secret_key.hex()
+        return base58.b58encode(self.entity.secret_key).decode()
 
-    @property
+    @ property
     def public_key(self) -> str:
         """
         Return a public key in hex format.
@@ -139,7 +136,7 @@ class SolanaCrypto(Crypto[Keypair]):
         """
         return self._public_key
 
-    @property
+    @ property
     def address(self) -> str:
         """
         Return the address for the key pair.
@@ -148,26 +145,37 @@ class SolanaCrypto(Crypto[Keypair]):
         """
         return self._address.to_base58().decode()
 
-    @classmethod
+    @ classmethod
     def load_private_key_from_path(
-        cls, file_name: str, password: Optional[str] = None
+        cls, file_name: Path, password: Optional[str] = None
     ) -> Keypair:
         """
-        Load a private key in base58 format from a file.
+        Load a private key in base58 or bytes format from a file.
 
         :param file_name: the path to the hex file.
         :param password: the password to encrypt/decrypt the private key.
         :return: the Entity.
         """
-        private_key = open(file_name, "r").read()
+        key_path = Path(file_name)
+        if key_path.name.endswith(".json"):
+            private_key = open(key_path, "r").read()
+            try:
+                # t = bytes(literal_eval(private_key))
+                key = Keypair.from_secret_key(bytes(literal_eval(private_key)))
+            except Exception as e:
 
-        try:
-            key = Keypair.from_secret_key(bytes.fromhex(private_key))
-        except Exception as e:
+                raise KeyIsIncorrect(
+                    f"Error on key `{key_path}` load! : Error: {repr(e)} "
+                ) from e
+        else:
+            private_key = open(key_path, "r").read()
+            try:
+                key = Keypair.from_secret_key(base58.b58decode(private_key))
+            except Exception as e:
 
-            raise KeyIsIncorrect(
-                f"Error on key `{file_name}` load! : Error: {repr(e)} "
-            ) from e
+                raise KeyIsIncorrect(
+                    f"Error on key `{key_path}` load! : Error: {repr(e)} "
+                ) from e
 
         return key
 
@@ -185,7 +193,7 @@ class SolanaCrypto(Crypto[Keypair]):
 
         return signed_msg
 
-    def sign_transaction(self, transaction: JSONLike, recent_blockhash: Blockhash, signers: Optional[list] = []) -> JSONLike:
+    def sign_transaction(self, transaction: JSONLike, nonce: str, signers: Optional[list] = []) -> JSONLike:
         """
         Sign a transaction in bytes string form.
 
@@ -194,30 +202,16 @@ class SolanaCrypto(Crypto[Keypair]):
         :return: signed transaction
         """
 
-        keypair = Keypair.from_secret_key(bytes.fromhex(self.private_key))
-        signers = [Keypair.from_secret_key(bytes.fromhex(
+        keypair = Keypair.from_secret_key(base58.b58decode(self.private_key))
+        signers = [Keypair.from_secret_key(base58.b58decode(
             signer.private_key)) for signer in signers]
-        transaction.recent_blockhash = recent_blockhash
+        transaction.recent_blockhash = nonce
         signers.append(keypair)
+
         try:
             transaction.sign(*signers)
         except Exception as e:
-            print(e)
             raise Exception(e)
-        return transaction
-
-    def sign_partial(self, transaction: JSONLike, recent_blockhash: Blockhash) -> JSONLike:
-        """
-        Sign a transaction in bytes string form.
-
-        :param transaction: the transaction to be signed
-        :param recent_blockhash: a recent blockhash
-        :return: signed transaction
-        """
-
-        keypair = Keypair.from_secret_key(bytes.fromhex(self.private_key))
-        transaction.recent_blockhash = recent_blockhash
-        transaction.sign_partial(keypair)
 
         return transaction
 
@@ -282,23 +276,32 @@ class SolanaHelper(Helper):
 
     @ classmethod
     def load_contract_interface(cls,
-                                file_path: Optional[Path] = None,
-                                program_address: Optional[str] = None,
+                                idl_file_path: Optional[Path] = None,
+                                program_keypair: Optional[Crypto] = None,
                                 rpc_api: Optional[str] = None,
+                                bytecode_path: Optional[Path] = None,
                                 ) -> Dict[str, str]:
         """
         Load contract interface.
 
-        :param file_path: the file path to the interface
+        :param idl_file_path: the file path to the IDL
+        :param program_keypair: the program keypair
+        :param rpc_api: the rpc api
+        :param bytecode_path: the file path to the bytecode
+
         :return: the interface
         """
-        contract_interface = None
-        if program_address is not None and rpc_api is not None:
+        if bytecode_path is not None:
+            in_file = open(bytecode_path, "rb")
+            bytecode = in_file.read()
+        else:
+            bytecode = None
+        if program_keypair is not None and rpc_api is not None:
             try:
                 base = PublicKey.find_program_address(
-                    [], PublicKey(program_address))[0]
+                    [], PublicKey(program_keypair))[0]
                 idl_address = PublicKey.create_with_seed(
-                    base, "anchor:idl", PublicKey(program_address))
+                    base, "anchor:idl", PublicKey(program_keypair.address))
                 client = Client(endpoint=rpc_api)
                 account_info = client.get_account_info(idl_address)
 
@@ -310,14 +313,15 @@ class SolanaHelper(Helper):
                 inflated_idl = _pako_inflate(
                     bytes(idl_account["data"])).decode()
                 json_idl = json.loads(inflated_idl)
-                return json_idl
+                return {"idl": json_idl, "bytecode": bytecode, "program_keypair": program_keypair}
             except Exception as e:
                 raise Exception("Could not locate IDL")
 
-        elif file_path is not None:
-            with open_file(file_path, "r") as interface_file_solana:
-                contract_interface = json.load(interface_file_solana)
-            return contract_interface
+        elif idl_file_path is not None:
+            with open_file(idl_file_path, "r") as interface_file_solana:
+                json_idl = json.load(interface_file_solana)
+
+            return {"idl": json_idl, "bytecode": bytecode, "program_keypair": program_keypair}
         else:
             raise Exception("Could not locate IDL")
 
@@ -415,7 +419,6 @@ class SolanaHelper(Helper):
         # pubkey = signature_obj.recover_public_key_from_msg_hash(hash_bytes)
         return "TOBEIMPLEMENTED"
 
-    @ staticmethod
     def generate_tx_nonce(self) -> str:
         """
         Generate a unique hash to distinguish transactions with the same terms.
@@ -424,12 +427,16 @@ class SolanaHelper(Helper):
         :param client: the address of the client.
         :return: return the hash in hex.
         """
-
-        result = self._api.get_latest_blockhash()
-        blockhash_json = result.value.to_json()
-        blockhash = json.loads(blockhash_json)
-        hash = blockhash['blockhash']
-        return hash
+        try:
+            blockhash = self.BlockhashCache.get()
+            return blockhash
+        except Exception as e:
+            result = self._api.get_latest_blockhash()
+            blockhash_json = result.value.to_json()
+            blockhash = json.loads(blockhash_json)
+            self.BlockhashCache.set(
+                blockhash=blockhash['blockhash'], slot=result.context.slot)
+            return blockhash['blockhash']
 
     @ staticmethod
     def get_contract_address(tx_receipt: JSONLike) -> Optional[list[str]]:
@@ -485,6 +492,14 @@ class SolanaApi(LedgerApi, SolanaHelper):
         self._api = Client(
             endpoint=kwargs.pop("address", DEFAULT_ADDRESS)
         )
+
+        self.BlockhashCache = BlockhashCache(ttl=10)
+        result = self._api.get_latest_blockhash()
+        blockhash_json = result.value.to_json()
+        blockhash = json.loads(blockhash_json)
+        hash = blockhash['blockhash']
+        self.BlockhashCache.set(blockhash=hash, slot=result.context.slot)
+
         self._chain_id = kwargs.pop("chain_id", DEFAULT_CHAIN_ID)
 
     @ property
@@ -515,31 +530,8 @@ class SolanaApi(LedgerApi, SolanaHelper):
     def _try_get_balance(self, address: Address, **_kwargs: Any) -> Optional[int]:
         """Get the balance of a given account."""
         response = self._api.get_balance(
-            PublicKey(address))  # pylint: disable=no-member
+            PublicKey(address), commitment="processed")  # pylint: disable=no-member
         return response.value
-
-    # def get_token_balances(
-    #     self, address: Address, raise_on_try: bool = False
-    # ) -> list:
-    #     """Get the balance of a given account."""
-    #     return self._try_get_token_balances(address, raise_on_try=raise_on_try)
-
-    # @try_decorator("Unable to retrieve balance: {}", logger_method="warning")
-    # def _try_get_token_balances(self, address: Address, **_kwargs: Any) -> list:
-    #     """Get the token balances of a given owner."""
-    #     txOpts = types.TokenAccountOpts(program_id=PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA'))
-    #     response = self._api.get_token_accounts_by_owner_json_parsed(PublicKey(address),opts=txOpts)  # pylint: disable=no-member
-    #     balances = []
-    #     for key in response.value:
-    #         balance = json.loads(key.account.data.parsed)
-    #         balances.append(
-    #             {
-    #                 "mint": balance['info']['mint'],
-    #                 "balance":balance['info']['tokenAmount']['uiAmount']
-    #             }
-    #             )
-
-    #     return balances
 
     def get_state(
         self, address: str, *args: Any, raise_on_try: bool = False, **kwargs: Any
@@ -725,43 +717,105 @@ class SolanaApi(LedgerApi, SolanaHelper):
         # pylint: disable=no-member
         return json.loads(tx.value.to_json())
 
+    def create_default_account(self, from_pubkey: PublicKey, new_account_pubkey: PublicKey, lamports: int, space: int, program_id: Optional[PublicKey] = SYS_PROGRAM_ID):
+        """
+        Build a create account transaction.
+
+        :param from_pubkey: the sender public key
+        :param new_account_pubkey: the new account public key
+        :param lamports: the amount of lamports to send
+        :param space: the space to allocate
+        :param program_id: the program id
+        :return: the tx, if present
+        """
+        params = CreateAccountParams(
+            from_pubkey,
+            new_account_pubkey,
+            lamports,
+            space,
+            program_id
+        )
+        createAccountInstruction = create_account(params)
+        txn = Transaction(fee_payer=from_pubkey).add(
+            createAccountInstruction)
+        return txn
+
     def get_contract_instance(
-        self, contract_interface: Dict[str, str], contract_address: str
+        self, contract_interface: Dict[str, str], contract_address: str, bytecode_path: Optional[Path] = None
     ) -> Any:
         """
         Get the instance of a contract.
 
         :param contract_interface: the contract interface.
         :param contract_address: the contract address.
+        :param bytecode: the contract bytecode.
         :return: the contract instance
         """
 
         program_id = PublicKey(contract_address)
-        idl = Idl.from_json(json.dumps(contract_interface))
+        idl = Idl.from_json(json.dumps(contract_interface["idl"]))
         pg = Program(idl, program_id)
-
-        return pg
+        if bytecode_path is not None:
+            # opening for [r]eading as [b]inary
+            in_file = open(bytecode_path, "rb")
+            bytecode = in_file.read()
+        else:
+            bytecode = None
+        return {"program": pg, "bytecode": bytecode}
 
     def get_deploy_transaction(  # pylint: disable=arguments-differ
         self,
-        contract_interface: Dict[str, str],
-        deployer_address: Address,
+        contract_interface: Dict[Any, Any],
+        payer_keypair: Address,
         raise_on_try: bool = False,
         **kwargs: Any,
     ) -> Optional[JSONLike]:
         """
 
-        **TOBEIMPLEMENTED**
-        Get the transaction to deploy the smart contract.
+        Deploy the smart contract.
 
-        :param contract_interface: the contract interface.
-        :param deployer_address: The address that will deploy the contract.
+        :param contract_interface: the contract instance.
+        :param payer_keypair: The keypair that will deploy the contract.
         :param raise_on_try: whether the method will raise or log on error
         :param kwargs: keyword arguments
         :return: the transaction dictionary.
         """
 
-        return {}
+        if contract_interface["bytecode"] is None or contract_interface["program_keypair"] is None:
+            print("huh")
+            raise ValueError("Bytecode or program_keypair is required")
+
+        # save keys in uint8 array temp
+
+        value = struct.unpack('64B', payer_keypair.entity.secret_key)
+        uint8_array = array.array('B', value)
+        payer_uint8 = uint8_array.tolist()
+        temp_dir_payer = Path(tempfile.mkdtemp())
+        temp_file_payer = temp_dir_payer / "payer.json"
+        temp_file_payer.write_text(str(payer_uint8))
+
+        value = struct.unpack(
+            '64B', contract_interface["program_keypair"].entity.secret_key)
+        uint8_array = array.array('B', value)
+        program_uint8 = uint8_array.tolist()
+        temp_dir_program = Path(tempfile.mkdtemp())
+        temp_file_program = temp_dir_program / "program.json"
+        temp_file_program.write_text(str(program_uint8))
+
+        t = SolanaCrypto(temp_file_payer)
+        temp_dir_bytecode = Path(tempfile.mkdtemp())
+        temp_file_bytecode = temp_dir_bytecode / "bytecode.so"
+        temp_file_bytecode.write_bytes(contract_interface["bytecode"])
+
+        cmd = f'''solana program deploy --url {DEFAULT_ADDRESS} -v --keypair {str(temp_file_payer)} --program-id {str(temp_file_program)} {str(temp_file_bytecode)}'''
+
+        result = subprocess.run(
+            [cmd], capture_output=True, text=True, shell=True)
+
+        if result.stderr != "":
+            raise ValueError(result.stderr)
+
+        return result.stdout
 
     @ classmethod
     def contract_method_call(
@@ -860,6 +914,7 @@ class SolanaFaucetApi(FaucetApi):
         Get wealth from the faucet for the provided address.
 
         :param address: the address.
+        :param amount: the amount of sol to airdrop.
         :param url: the url
         """
 
@@ -894,6 +949,10 @@ class SolanaFaucetApi(FaucetApi):
             _default_logger.error(
                 "Response: {} , e: {}".format("airdrop failed", e))
         response = (json.loads(resp.to_json()))
+        if 'message' in response:
+            _default_logger.error(
+                "Response: {}".format(response.get('message')))
+            raise Exception(response.get('message'))
         if response['result'] == None:
             _default_logger.error("Response: {}".format("airdrop failed"))
         elif "error" in response:  # pragma: no cover
@@ -908,33 +967,33 @@ class SolanaFaucetApi(FaucetApi):
             return response['result']
 
 
-class LruLockWrapper:
-    """Wrapper for LRU with threading.Lock."""
+# class LruLockWrapper:
+#     """Wrapper for LRU with threading.Lock."""
 
-    def __init__(self, lru: LRU) -> None:
-        """Init wrapper."""
-        self.lru = lru
-        self.lock = threading.Lock()
+#     def __init__(self, lru: LRU) -> None:
+#         """Init wrapper."""
+#         self.lru = lru
+#         self.lock = threading.Lock()
 
-    def __getitem__(self, *args: Any, **kwargs: Any) -> Any:
-        """Get item"""
-        with self.lock:
-            return self.lru.__getitem__(*args, **kwargs)
+#     def __getitem__(self, *args: Any, **kwargs: Any) -> Any:
+#         """Get item"""
+#         with self.lock:
+#             return self.lru.__getitem__(*args, **kwargs)
 
-    def __setitem__(self, *args: Any, **kwargs: Any) -> Any:
-        """Set item."""
-        with self.lock:
-            return self.lru.__setitem__(*args, **kwargs)
+#     def __setitem__(self, *args: Any, **kwargs: Any) -> Any:
+#         """Set item."""
+#         with self.lock:
+#             return self.lru.__setitem__(*args, **kwargs)
 
-    def __contains__(self, *args: Any, **kwargs: Any) -> Any:
-        """Contain item."""
-        with self.lock:
-            return self.lru.__contains__(*args, **kwargs)
+#     def __contains__(self, *args: Any, **kwargs: Any) -> Any:
+#         """Contain item."""
+#         with self.lock:
+#             return self.lru.__contains__(*args, **kwargs)
 
-    def __delitem__(self, *args: Any, **kwargs: Any) -> Any:
-        """Del item."""
-        with self.lock:
-            return self.lru.__delitem__(*args, **kwargs)
+#     def __delitem__(self, *args: Any, **kwargs: Any) -> Any:
+#         """Del item."""
+#         with self.lock:
+#             return self.lru.__delitem__(*args, **kwargs)
 
 
 # def set_wrapper_for_web3py_session_cache() -> None:

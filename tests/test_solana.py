@@ -22,10 +22,7 @@
 import hashlib
 import logging
 import json
-import random
-import re
-import os
-import subprocess
+
 import time
 from pathlib import Path
 from typing import Dict, Generator, Optional, Tuple, Union, cast
@@ -38,9 +35,11 @@ from aea_ledger_solana import (
     SolanaCrypto,
     SolanaFaucetApi,
     LAMPORTS_PER_SOL,
+    PublicKey,
+    Keypair
 )
 from solana.transaction import Transaction
-from solana.publickey import PublicKey
+from ast import literal_eval
 
 
 from aea.common import JSONLike
@@ -60,7 +59,7 @@ def test_get_wealth(caplog, solana_private_key_file):
         sc = SolanaCrypto(solana_private_key_file)
 
         transaction_digest = solana_faucet_api.get_wealth(
-            sc.address, AIRDROP_AMOUNT, "http://127.0.0.1:8899/")
+            sc.address, AIRDROP_AMOUNT)
 
         assert transaction_digest is not None
 
@@ -145,7 +144,7 @@ def test_load_contract_interface_from_program_id():
     contract_interface = solana_api.load_contract_interface(
         program_address="ZETAxsqBRek56DhiGXrn75yj2NHU3aYUnxvHXpkf3aD", rpc_api="https://api.mainnet-beta.solana.com")
 
-    assert "name" in contract_interface, "idl has a name"
+    assert "name" in contract_interface['idl'], "idl has a name"
 
 
 def _wait_get_receipt(
@@ -182,7 +181,7 @@ def _construct_and_settle_tx(
         isinstance(transfer_transaction, Transaction)
     ), "Incorrect transfer_transaction constructed."
 
-    nonce = solana_api.generate_tx_nonce(solana_api)
+    nonce = solana_api.generate_tx_nonce()
 
     if tx_params['unfunded_account']:
         signers = [account2]
@@ -341,7 +340,7 @@ def test_get_tx(caplog, solana_private_key_file):
         sc = SolanaCrypto(private_key_path=solana_private_key_file)
         solana_api = SolanaApi()
         tx_signature = solana_faucet_api.get_wealth(
-            sc.public_key, AIRDROP_AMOUNT, "http://127.0.0.1:8899/")
+            sc.public_key, AIRDROP_AMOUNT)
 
         tx, settled = _wait_get_receipt(solana_api, tx_signature)
         assert settled is True
@@ -363,29 +362,6 @@ def test_encrypt_decrypt_privatekey(caplog, solana_private_key_file):
         decrypted = sc.decrypt(encrypted, "test123456788")
         assert privKey == decrypted, "Private keys match"
 
-        # decrypted = sc.decrypt(encrypted, "test1234567")
-        # assert privKey != decrypted, "Private keys dont match"
-
-
-# @pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
-# @pytest.mark.integration
-# @pytest.mark.ledger
-# def test_deploy_program():
-#     """Test the deploy program method."""
-#     program_work_dir_path = Path(ROOT_DIR, "tests", "data",
-#                 "spl-token-faucet")
-#     byte_code_path = Path(ROOT_DIR, "tests", "data",
-#                 "spl-token-faucet", "target", "deploy", "spl_token_faucet.so")
-#     keypair_path = Path(ROOT_DIR, "tests", "data",
-#                 "spl-token-faucet", "target", "deploy", "spl_token_faucet-keypair.json")
-#     anchor_version="0.18.0"
-
-#     p1 = subprocess.run(f'avm use {anchor_version}',cwd=program_work_dir_path)
-
-#     interface = {"abi": [], "bytecode": b""}
-#     max_priority_fee_per_gas = 1000000000
-#     max_fee_per_gas = 1000000000
-
 
 def test_load_contract_interface():
     """Test the load_contract_interface method."""
@@ -393,20 +369,23 @@ def test_load_contract_interface():
                 "dummy_contract", "build", "idl.json")
     result = SolanaApi.load_contract_interface(path)
 
-    assert "name" in result
+    assert "name" in result['idl']
 
 
 def test_load_contract_instance():
     """Test the load_contract_interface method."""
-    path = Path(ROOT_DIR, "tests", "data",
-                "dummy_contract", "build", "idl.json")
+    idl_path = Path(ROOT_DIR, "tests", "data",
+                    "spl-token-faucet", "target", "idl", "spl_token_faucet.json")
+    bytecode_path = Path(ROOT_DIR, "tests", "data",
+                         "spl-token-faucet", "target", "deploy", "spl_token_faucet.so")
     sa = SolanaApi()
-    result = sa.load_contract_interface(path)
+    result = sa.load_contract_interface(
+        idl_file_path=idl_path, bytecode_path=bytecode_path)
     pid = "ZETAxsqBRek56DhiGXrn75yj2NHU3aYUnxvHXpkf3aD"
     instance = SolanaApi.get_contract_instance(SolanaApi,
                                                contract_interface=result, contract_address=pid)
 
-    assert hasattr(instance, 'coder')
+    assert hasattr(instance['program'], 'coder')
 
 
 def test_get_transaction_transfer_logs(solana_private_key_file):
@@ -440,8 +419,95 @@ def test_get_transaction_transfer_logs(solana_private_key_file):
 
     assert tx['blockTime'] == transaction_receipt['blockTime'], "Should be same"
 
-    logs = solana_api.get_transaction_transfer_logs(transaction_digest)
-    logs_limited = solana_api.get_transaction_transfer_logs(
-        transaction_digest, account1.address)
+    # logs = solana_api.get_transaction_transfer_logs(transaction_digest)
+    # logs_limited = solana_api.get_transaction_transfer_logs(
+    #     transaction_digest, account1.address)
 
-    assert True is True
+    # assert True is True
+
+
+@pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
+@pytest.mark.integration
+@pytest.mark.ledger
+def test_deploy_program():
+    """Test the deploy contract method."""
+
+    idl_path = Path(ROOT_DIR, "tests", "data",
+                    "tic-tac-toe", "target", "idl", "tic_tac_toe.json")
+    bytecode_path = Path(ROOT_DIR, "tests", "data",
+                         "tic-tac-toe", "target", "deploy", "tic_tac_toe.so")
+    program_keypair_path = Path(
+        ROOT_DIR, "tests", "data", "program_solana_private_key.txt")
+    payer_keypair_path = Path(
+        ROOT_DIR, "tests", "data", "solana_private_key.txt")
+
+    sa = SolanaApi()
+
+    program = SolanaCrypto(str(program_keypair_path))
+    payer = SolanaCrypto(str(payer_keypair_path))
+    # program = SolanaCrypto()
+    # payer = SolanaCrypto()
+
+    interface = sa.load_contract_interface(
+        idl_file_path=idl_path, bytecode_path=bytecode_path, program_keypair=program)
+
+    init = True
+    if init:
+        program.dump(str(program_keypair_path))
+        payer.dump(str(payer_keypair_path))
+
+        faucet = SolanaFaucetApi()
+
+        tx = faucet.get_wealth(payer.address, 2)
+        assert tx is not None, "Generate wealth failed"
+        transaction_receipt, is_settled = _wait_get_receipt(sa, tx)
+        assert is_settled is True
+
+        balance = sa.get_balance(payer.address)
+        assert balance >= 2 * LAMPORTS_PER_SOL
+        print("Payer Balance: " + str(balance/LAMPORTS_PER_SOL) + " SOL")
+
+    result = sa.get_deploy_transaction(interface, payer)
+    assert result is not None, "Should not be none"
+
+
+@pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
+@pytest.mark.integration
+@pytest.mark.ledger
+def test_program_method_call():
+    """Test the deploy contract method."""
+
+    idl_path = Path(ROOT_DIR, "tests", "data",
+                    "tic-tac-toe", "target", "idl", "tic_tac_toe.json")
+    bytecode_path = Path(ROOT_DIR, "tests", "data",
+                         "tic-tac-toe", "target", "deploy", "tic_tac_toe.so")
+    program_keypair_path = Path(
+        ROOT_DIR, "tests", "data", "program_solana_private_key.txt")
+    payer_keypair_path = Path(
+        ROOT_DIR, "tests", "data", "solana_private_key.txt")
+
+    sa = SolanaApi()
+
+    program = SolanaCrypto(str(program_keypair_path))
+    payer = SolanaCrypto(str(payer_keypair_path))
+    # program = SolanaCrypto()
+    # payer = SolanaCrypto()
+
+    interface = sa.load_contract_interface(
+        idl_file_path=idl_path, bytecode_path=bytecode_path, program_keypair=program)
+
+    init = True
+    if init:
+        program.dump(str(program_keypair_path))
+        payer.dump(str(payer_keypair_path))
+
+        faucet = SolanaFaucetApi()
+
+        tx = faucet.get_wealth(payer.address, 2)
+        assert tx is not None, "Generate wealth failed"
+        transaction_receipt, is_settled = _wait_get_receipt(sa, tx)
+        assert is_settled is True
+
+        balance = sa.get_balance(payer.address)
+        assert balance >= 2 * LAMPORTS_PER_SOL
+        print("Payer Balance: " + str(balance/LAMPORTS_PER_SOL) + " SOL")
