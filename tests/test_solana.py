@@ -22,9 +22,7 @@
 import hashlib
 import logging
 import json
-import struct
-import array
-import subprocess
+
 import time
 from pathlib import Path
 from typing import Dict, Generator, Optional, Tuple, Union, cast
@@ -61,7 +59,7 @@ def test_get_wealth(caplog, solana_private_key_file):
         sc = SolanaCrypto(solana_private_key_file)
 
         transaction_digest = solana_faucet_api.get_wealth(
-            sc.address, AIRDROP_AMOUNT, "http://127.0.0.1:8899/")
+            sc.address, AIRDROP_AMOUNT)
 
         assert transaction_digest is not None
 
@@ -146,7 +144,7 @@ def test_load_contract_interface_from_program_id():
     contract_interface = solana_api.load_contract_interface(
         program_address="ZETAxsqBRek56DhiGXrn75yj2NHU3aYUnxvHXpkf3aD", rpc_api="https://api.mainnet-beta.solana.com")
 
-    assert "name" in contract_interface, "idl has a name"
+    assert "name" in contract_interface['idl'], "idl has a name"
 
 
 def _wait_get_receipt(
@@ -342,7 +340,7 @@ def test_get_tx(caplog, solana_private_key_file):
         sc = SolanaCrypto(private_key_path=solana_private_key_file)
         solana_api = SolanaApi()
         tx_signature = solana_faucet_api.get_wealth(
-            sc.public_key, AIRDROP_AMOUNT, "http://127.0.0.1:8899/")
+            sc.public_key, AIRDROP_AMOUNT)
 
         tx, settled = _wait_get_receipt(solana_api, tx_signature)
         assert settled is True
@@ -438,41 +436,30 @@ def test_deploy_program():
                     "tic-tac-toe", "target", "idl", "tic_tac_toe.json")
     bytecode_path = Path(ROOT_DIR, "tests", "data",
                          "tic-tac-toe", "target", "deploy", "tic_tac_toe.so")
-    program_keypair_path = Path(ROOT_DIR, "tests", "data",
-                                "tic-tac-toe", "target", "deploy", "tic_tac_toe-keypair.json")
-    payer_keypair_path = Path(ROOT_DIR, "payer.txt")
-    payer_keypair_json_path = Path(ROOT_DIR, "payer.json")
+    program_keypair_path = Path(
+        ROOT_DIR, "tests", "data", "program_solana_private_key.txt")
+    payer_keypair_path = Path(
+        ROOT_DIR, "tests", "data", "solana_private_key.txt")
 
     sa = SolanaApi()
 
+    program = SolanaCrypto(str(program_keypair_path))
+    payer = SolanaCrypto(str(payer_keypair_path))
+    # program = SolanaCrypto()
+    # payer = SolanaCrypto()
+
     interface = sa.load_contract_interface(
-        idl_file_path=idl_path, bytecode_path=bytecode_path)
-
-    program = SolanaCrypto(program_keypair_path)
-    payer = SolanaCrypto(payer_keypair_path)
-    try:
-        value = struct.unpack('64B', payer.entity.secret_key)
-        uint8_array = array.array('B', value)
-        arr = uint8_array.tolist()
-
-        with open('payer.json', 'w') as f:
-            json.dump(arr, f)
-
-    except Exception as e:
-        print(e)
-
-    print("")
-    print("Payer address: " + payer.address)
-    print("Program address: " + program.address)
-    payer.dump("payer.txt")
-    program.dump("program.txt")
+        idl_file_path=idl_path, bytecode_path=bytecode_path, program_keypair=program)
 
     init = True
     if init:
+        program.dump(str(program_keypair_path))
+        payer.dump(str(payer_keypair_path))
+
         faucet = SolanaFaucetApi()
 
         tx = faucet.get_wealth(payer.address, 2)
-
+        assert tx is not None, "Generate wealth failed"
         transaction_receipt, is_settled = _wait_get_receipt(sa, tx)
         assert is_settled is True
 
@@ -480,53 +467,47 @@ def test_deploy_program():
         assert balance >= 2 * LAMPORTS_PER_SOL
         print("Payer Balance: " + str(balance/LAMPORTS_PER_SOL) + " SOL")
 
-        # time.sleep(5)
-        if interface["bytecode"] is None:
-            raise ValueError("Bytecode not found.")
+    result = sa.get_deploy_transaction(interface, payer)
+    assert result is not None, "Should not be none"
 
-        data = interface["bytecode"]
-        bytecode_len = len(data)
-        rent_exempt_amount = sa._api.get_minimum_balance_for_rent_exemption(
-            bytecode_len)
-        rent_exempt_amount = rent_exempt_amount.value
 
-        # create_account_tx = sa.create_default_account(
-        #     payer.public_key,
-        #     program.public_key,
-        #     rent_exempt_amount,
-        #     bytecode_len,
-        #     PublicKey("BPFLoaderUpgradeab1e11111111111111111111111"))
+@pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
+@pytest.mark.integration
+@pytest.mark.ledger
+def test_program_method_call():
+    """Test the deploy contract method."""
 
-        # nonce = sa.generate_tx_nonce()
+    idl_path = Path(ROOT_DIR, "tests", "data",
+                    "tic-tac-toe", "target", "idl", "tic_tac_toe.json")
+    bytecode_path = Path(ROOT_DIR, "tests", "data",
+                         "tic-tac-toe", "target", "deploy", "tic_tac_toe.so")
+    program_keypair_path = Path(
+        ROOT_DIR, "tests", "data", "program_solana_private_key.txt")
+    payer_keypair_path = Path(
+        ROOT_DIR, "tests", "data", "solana_private_key.txt")
 
-        # signed_txn = payer.sign_transaction(
-        #     create_account_tx, nonce, [program])
-        # tx_digest = sa.send_signed_transaction(signed_txn)
+    sa = SolanaApi()
 
-        # transaction_receipt, is_settled = _wait_get_receipt(sa, tx_digest)
-        # assert is_settled is True
-        # print("Program Account created: " + tx_digest)
+    program = SolanaCrypto(str(program_keypair_path))
+    payer = SolanaCrypto(str(payer_keypair_path))
+    # program = SolanaCrypto()
+    # payer = SolanaCrypto()
 
-    balance = sa.get_balance(program.address)
-    print("Program Balance: " + str(balance/LAMPORTS_PER_SOL) + " SOL")
-    cmd = f'''solana program deploy --url http://localhost:8899 -v --keypair {str(payer_keypair_json_path)} --program-id {str(program_keypair_path)} {str(bytecode_path)}'''
+    interface = sa.load_contract_interface(
+        idl_file_path=idl_path, bytecode_path=bytecode_path, program_keypair=program)
 
-    result = subprocess.run(
-        [cmd], capture_output=True, text=True, shell=True)
-    print("stdout:", result.stdout)
-    print("stderr:", result.stderr)
-    ####
+    init = True
+    if init:
+        program.dump(str(program_keypair_path))
+        payer.dump(str(payer_keypair_path))
 
-    txn = sa.get_deploy_transaction(
-        contract_interface=interface,
-        contract_keypair=program,
-        payer_keypair=payer
-    )
+        faucet = SolanaFaucetApi()
 
-    signed_txn = payer.sign_transaction(txn, [program])
-    tx_digest = sa.send_signed_transaction(signed_txn)
+        tx = faucet.get_wealth(payer.address, 2)
+        assert tx is not None, "Generate wealth failed"
+        transaction_receipt, is_settled = _wait_get_receipt(sa, tx)
+        assert is_settled is True
 
-    time.sleep(5)
-    tx_reciept = sa.get_transaction_receipt(tx_digest)
-    settled = sa.is_transaction_settled(tx_reciept)
-    assert settled
+        balance = sa.get_balance(payer.address)
+        assert balance >= 2 * LAMPORTS_PER_SOL
+        print("Payer Balance: " + str(balance/LAMPORTS_PER_SOL) + " SOL")

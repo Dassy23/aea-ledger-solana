@@ -23,14 +23,15 @@ import logging
 import hashlib
 import base64
 import base58
+import struct
+import array
+import subprocess
+import tempfile
 
 
-import threading
-import warnings
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union, cast
 import zlib
-import time
 from ast import literal_eval
 from aea.common import Address, JSONLike
 from aea.crypto.base import Crypto, FaucetApi, Helper, LedgerApi
@@ -68,9 +69,8 @@ from lru import LRU
 _default_logger = logging.getLogger(__name__)
 
 _SOLANA = "solana"
-TESTNET_NAME = "testnet"
-# DEFAULT_ADDRESS = "https://api.devnet.solana.com"
-DEFAULT_ADDRESS = "http://localhost:8899"
+TESTNET_NAME = "n/a"
+DEFAULT_ADDRESS = "https://api.devnet.solana.com"
 DEFAULT_CHAIN_ID = "solana"
 DEFAULT_CURRENCY_DENOM = "lamports"
 RENT_EXEMPT_AMOUNT = 1000000
@@ -156,24 +156,25 @@ class SolanaCrypto(Crypto[Keypair]):
         :param password: the password to encrypt/decrypt the private key.
         :return: the Entity.
         """
-        if file_name.name.endswith(".json"):
-            private_key = open(file_name, "r").read()
+        key_path = Path(file_name)
+        if key_path.name.endswith(".json"):
+            private_key = open(key_path, "r").read()
             try:
                 # t = bytes(literal_eval(private_key))
                 key = Keypair.from_secret_key(bytes(literal_eval(private_key)))
             except Exception as e:
 
                 raise KeyIsIncorrect(
-                    f"Error on key `{file_name}` load! : Error: {repr(e)} "
+                    f"Error on key `{key_path}` load! : Error: {repr(e)} "
                 ) from e
         else:
-            private_key = open(file_name, "r").read()
+            private_key = open(key_path, "r").read()
             try:
                 key = Keypair.from_secret_key(base58.b58decode(private_key))
             except Exception as e:
 
                 raise KeyIsIncorrect(
-                    f"Error on key `{file_name}` load! : Error: {repr(e)} "
+                    f"Error on key `{key_path}` load! : Error: {repr(e)} "
                 ) from e
 
         return key
@@ -276,30 +277,31 @@ class SolanaHelper(Helper):
     @ classmethod
     def load_contract_interface(cls,
                                 idl_file_path: Optional[Path] = None,
-                                program_address: Optional[str] = None,
+                                program_keypair: Optional[Crypto] = None,
                                 rpc_api: Optional[str] = None,
-                                bytecode_path: Optional[bytes] = None,
+                                bytecode_path: Optional[Path] = None,
                                 ) -> Dict[str, str]:
         """
         Load contract interface.
 
-        :param file_path: the file path to the interface
-        :param program_address: the program address
+        :param idl_file_path: the file path to the IDL
+        :param program_keypair: the program keypair
         :param rpc_api: the rpc api
+        :param bytecode_path: the file path to the bytecode
+
         :return: the interface
         """
-        contract_interface = None
         if bytecode_path is not None:
             in_file = open(bytecode_path, "rb")
             bytecode = in_file.read()
         else:
             bytecode = None
-        if program_address is not None and rpc_api is not None:
+        if program_keypair is not None and rpc_api is not None:
             try:
                 base = PublicKey.find_program_address(
-                    [], PublicKey(program_address))[0]
+                    [], PublicKey(program_keypair))[0]
                 idl_address = PublicKey.create_with_seed(
-                    base, "anchor:idl", PublicKey(program_address))
+                    base, "anchor:idl", PublicKey(program_keypair.address))
                 client = Client(endpoint=rpc_api)
                 account_info = client.get_account_info(idl_address)
 
@@ -311,7 +313,7 @@ class SolanaHelper(Helper):
                 inflated_idl = _pako_inflate(
                     bytes(idl_account["data"])).decode()
                 json_idl = json.loads(inflated_idl)
-                return {"idl": json_idl, "bytecode": bytecode}
+                return {"idl": json_idl, "bytecode": bytecode, "program_keypair": program_keypair}
             except Exception as e:
                 raise Exception("Could not locate IDL")
 
@@ -319,7 +321,7 @@ class SolanaHelper(Helper):
             with open_file(idl_file_path, "r") as interface_file_solana:
                 json_idl = json.load(interface_file_solana)
 
-            return {"idl": json_idl, "bytecode": bytecode}
+            return {"idl": json_idl, "bytecode": bytecode, "program_keypair": program_keypair}
         else:
             raise Exception("Could not locate IDL")
 
@@ -751,7 +753,7 @@ class SolanaApi(LedgerApi, SolanaHelper):
         """
 
         program_id = PublicKey(contract_address)
-        idl = Idl.from_json(json.dumps(contract_interface))
+        idl = Idl.from_json(json.dumps(contract_interface["idl"]))
         pg = Program(idl, program_id)
         if bytecode_path is not None:
             # opening for [r]eading as [b]inary
@@ -764,122 +766,56 @@ class SolanaApi(LedgerApi, SolanaHelper):
     def get_deploy_transaction(  # pylint: disable=arguments-differ
         self,
         contract_interface: Dict[Any, Any],
-        contract_keypair: Address,
         payer_keypair: Address,
         raise_on_try: bool = False,
         **kwargs: Any,
     ) -> Optional[JSONLike]:
         """
 
-        **TOBEIMPLEMENTED**
-        Get the transaction to deploy the smart contract.
+        Deploy the smart contract.
 
-        :param contract_instance: the contract instance.
-        :param deployer_address: The address that will deploy the contract.
+        :param contract_interface: the contract instance.
+        :param payer_keypair: The keypair that will deploy the contract.
         :param raise_on_try: whether the method will raise or log on error
         :param kwargs: keyword arguments
         :return: the transaction dictionary.
-        https://github.com/solana-labs/solana-web3.js/blob/d14dcf6c8a8f979ecb7ee16dea37e721e3201db1/src/loader.ts
         """
 
-        if contract_interface["bytecode"] is None:
-            raise ValueError("Bytecode not found.")
+        if contract_interface["bytecode"] is None or contract_interface["program_keypair"] is None:
+            print("huh")
+            raise ValueError("Bytecode or program_keypair is required")
 
-        data = contract_interface["bytecode"]
-        PACKET_DATA_SIZE = 1280 - 40 - 8
-        chunk_size = PACKET_DATA_SIZE - 300
-        BPF_loader = PublicKey("BPFLoaderUpgradeab1e11111111111111111111111")
-        payload_schema = CStruct(
-            "instruction" / U32,
-            "offset" / U32,
-            "bytesLength" / U32,
-            "bytesLengthPadding" / U32,
-            "bytes" / Vec(U8),
-        )
+        # save keys in uint8 array temp
 
-        offset = 0
-        count = 0
-        array = data
-        print("total data: "+str(len(array)))
-        while len(array) > 0:
-            bytes = array[:chunk_size]
-            try:
-                nonce = self.generate_tx_nonce()
-                data_encoded = payload_schema.build(
-                    {
-                        "instruction": 0,
-                        "offset": offset,
-                        "bytesLength": 0,
-                        "bytesLengthPadding": 0,
-                        "bytes": bytes,
-                    })
-                decode = payload_schema.parse(data_encoded)
+        value = struct.unpack('64B', payer_keypair.entity.secret_key)
+        uint8_array = array.array('B', value)
+        payer_uint8 = uint8_array.tolist()
+        temp_dir_payer = Path(tempfile.mkdtemp())
+        temp_file_payer = temp_dir_payer / "payer.json"
+        temp_file_payer.write_text(str(payer_uint8))
 
-                instr = TransactionInstruction(
-                    keys=[
-                        AccountMeta(
-                            pubkey=contract_keypair.public_key, is_signer=True, is_writable=True)],
-                    program_id=BPF_loader,
-                    data=data_encoded,
-                )
-                txn = Transaction(
-                    fee_payer=payer_keypair.public_key).add(instr)
-                contract_keypair.sign_transaction(
-                    txn, nonce, [payer_keypair])
-                # signed_txn = contract_keypair.sign_transaction(
-                #     txn, nonce, [])
+        value = struct.unpack(
+            '64B', contract_interface["program_keypair"].entity.secret_key)
+        uint8_array = array.array('B', value)
+        program_uint8 = uint8_array.tolist()
+        temp_dir_program = Path(tempfile.mkdtemp())
+        temp_file_program = temp_dir_program / "program.json"
+        temp_file_program.write_text(str(program_uint8))
 
-                tx_digest = self.send_signed_transaction(txn)
-                print(tx_digest)
-                offset += chunk_size
-                array = array[chunk_size:]
-                count += 1
-                print("offset: "+str(offset))
-                print("data left: "+str(len(array)))
-                print("count: "+str(count))
-                # time.sleep(1)
-            except Exception as e:
-                print(e)
-            # tx_reciept = self.get_transaction_receipt(tx_digest)
-            # settled = self.is_transaction_settled(tx_reciept)
-            # assert settled
-        print("Account data loaded")
+        t = SolanaCrypto(temp_file_payer)
+        temp_dir_bytecode = Path(tempfile.mkdtemp())
+        temp_file_bytecode = temp_dir_bytecode / "bytecode.so"
+        temp_file_bytecode.write_bytes(contract_interface["bytecode"])
 
-        # make executable
-        execution_schema = CStruct(
-            "instruction" / U32
-        )
+        cmd = f'''solana program deploy --url {DEFAULT_ADDRESS} -v --keypair {str(temp_file_payer)} --program-id {str(temp_file_program)} {str(temp_file_bytecode)}'''
 
-        data_encoded = execution_schema.build(
-            {
-                "instruction": 1
-            })
-        decode = execution_schema.parse(data_encoded)
+        result = subprocess.run(
+            [cmd], capture_output=True, text=True, shell=True)
 
-        instr = TransactionInstruction(
-            keys=[
-                AccountMeta(
-                    pubkey=contract_keypair.public_key, is_signer=True, is_writable=True),
-                AccountMeta(
-                    pubkey=PublicKey("SysvarRent111111111111111111111111111111111"), is_signer=False, is_writable=False)],
-            program_id=BPF_loader,
-            data=data_encoded,
-        )
-        txn = Transaction(
-            fee_payer=payer_keypair.public_key).add(instr)
-        nonce = self.generate_tx_nonce()
-        contract_keypair.sign_transaction(
-            txn, nonce, [payer_keypair])
-        tx_digest = self.send_signed_transaction(txn)
-        print(tx_digest)
+        if result.stderr != "":
+            raise ValueError(result.stderr)
 
-        # while len(data) > 0:
-
-        # payload_ser = construct_payload()
-
-        # # Write Program Data
-
-        # return {}
+        return result.stdout
 
     @ classmethod
     def contract_method_call(
@@ -1012,8 +948,11 @@ class SolanaFaucetApi(FaucetApi):
         except Exception as e:
             _default_logger.error(
                 "Response: {} , e: {}".format("airdrop failed", e))
-            raise Exception(e)
         response = (json.loads(resp.to_json()))
+        if 'message' in response:
+            _default_logger.error(
+                "Response: {}".format(response.get('message')))
+            raise Exception(response.get('message'))
         if response['result'] == None:
             _default_logger.error("Response: {}".format("airdrop failed"))
         elif "error" in response:  # pragma: no cover
@@ -1028,33 +967,33 @@ class SolanaFaucetApi(FaucetApi):
             return response['result']
 
 
-class LruLockWrapper:
-    """Wrapper for LRU with threading.Lock."""
+# class LruLockWrapper:
+#     """Wrapper for LRU with threading.Lock."""
 
-    def __init__(self, lru: LRU) -> None:
-        """Init wrapper."""
-        self.lru = lru
-        self.lock = threading.Lock()
+#     def __init__(self, lru: LRU) -> None:
+#         """Init wrapper."""
+#         self.lru = lru
+#         self.lock = threading.Lock()
 
-    def __getitem__(self, *args: Any, **kwargs: Any) -> Any:
-        """Get item"""
-        with self.lock:
-            return self.lru.__getitem__(*args, **kwargs)
+#     def __getitem__(self, *args: Any, **kwargs: Any) -> Any:
+#         """Get item"""
+#         with self.lock:
+#             return self.lru.__getitem__(*args, **kwargs)
 
-    def __setitem__(self, *args: Any, **kwargs: Any) -> Any:
-        """Set item."""
-        with self.lock:
-            return self.lru.__setitem__(*args, **kwargs)
+#     def __setitem__(self, *args: Any, **kwargs: Any) -> Any:
+#         """Set item."""
+#         with self.lock:
+#             return self.lru.__setitem__(*args, **kwargs)
 
-    def __contains__(self, *args: Any, **kwargs: Any) -> Any:
-        """Contain item."""
-        with self.lock:
-            return self.lru.__contains__(*args, **kwargs)
+#     def __contains__(self, *args: Any, **kwargs: Any) -> Any:
+#         """Contain item."""
+#         with self.lock:
+#             return self.lru.__contains__(*args, **kwargs)
 
-    def __delitem__(self, *args: Any, **kwargs: Any) -> Any:
-        """Del item."""
-        with self.lock:
-            return self.lru.__delitem__(*args, **kwargs)
+#     def __delitem__(self, *args: Any, **kwargs: Any) -> Any:
+#         """Del item."""
+#         with self.lock:
+#             return self.lru.__delitem__(*args, **kwargs)
 
 
 # def set_wrapper_for_web3py_session_cache() -> None:

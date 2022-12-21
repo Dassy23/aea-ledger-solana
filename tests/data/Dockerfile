@@ -14,10 +14,10 @@ RUN apt update && \
     rm -rf /var/lib/apt/lists/*
 
 # Setup rust
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- --default-toolchain 1.59.0 -y
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 ENV PATH="/root/.cargo/bin:${PATH}"
 
-ARG SOLANA_VERSION=1.10.38
+ARG SOLANA_VERSION=1.14.8
 
 # Get the solana source
 RUN curl https://codeload.github.com/solana-labs/solana/tar.gz/refs/tags/v$SOLANA_VERSION | tar xvz
