@@ -46,6 +46,7 @@ from solana.rpc.api import Client
 from solana.blockhash import Blockhash, BlockhashCache
 from solana.keypair import Keypair
 from solders.signature import Signature
+
 from anchorpy import Idl
 from cryptography.fernet import Fernet
 
@@ -60,10 +61,6 @@ from solana.system_program import TransferParams, transfer
 from solana.transaction import Transaction, TransactionInstruction, AccountMeta
 from solana.system_program import create_account, SYS_PROGRAM_ID
 from solana.system_program import CreateAccountParams
-from borsh_construct import String, CStruct, U8, U32, Vec
-
-
-from lru import LRU
 
 
 _default_logger = logging.getLogger(__name__)
@@ -188,7 +185,7 @@ class SolanaCrypto(Crypto[Keypair]):
         :return: signature of the message in string form
         """
 
-        keypair = Keypair.from_secret_key(bytes.fromhex(self.private_key))
+        keypair = Keypair.from_secret_key(base58.b58decode(self.private_key))
         signed_msg = keypair.sign(message)
 
         return signed_msg
@@ -389,12 +386,7 @@ class SolanaHelper(Helper):
         :return: the recovered addresses
         """
 
-        # try:
-        #     pass
-        #     # VerifyKey(bytes(self.address)).verify(msg.message, msg.signature)
-        # except:
-        #     return False
-        return True
+        return "TOBEIMPLEMENTED"
 
     @ classmethod
     def recover_public_keys_from_message(
@@ -409,17 +401,7 @@ class SolanaHelper(Helper):
         :param is_deprecated_mode: if the deprecated signing was used
         :return: the recovered public keys
         """
-        # if not is_deprecated_mode:
-        #     signable_message = encode_defunct(primitive=message)
-        #     message = _hash_eip191_message(signable_message)
-        # hash_bytes = HexBytes(message)
-        # # code taken from https://github.com/ethereum/eth-account/blob/master/eth_account/account.py#L428
-        # if len(hash_bytes) != 32:  # pragma: nocover
-        #     raise ValueError("The message hash must be exactly 32-bytes")
-        # signature_bytes = HexBytes(signature)
-        # signature_bytes_standard = to_standard_signature_bytes(signature_bytes)
-        # signature_obj = keys.Signature(signature_bytes=signature_bytes_standard)
-        # pubkey = signature_obj.recover_public_key_from_msg_hash(hash_bytes)
+
         return "TOBEIMPLEMENTED"
 
     def generate_tx_nonce(self) -> str:
@@ -469,16 +451,18 @@ class SolanaHelper(Helper):
         return public_key.to_base58().decode()
 
     @ classmethod
-    def is_valid_address(cls, address: Address) -> bool:
+    def is_valid_address(cls, address: str) -> bool:
         """
         Check if the address is valid.
-        **TOBEIMPLEMENTED**
 
         :param address: the address to validate
         :return: whether the address is valid
         """
-        # address = self.get
-        return True
+        try:
+            isValid = PublicKey(address)
+            return True
+        except Exception as e:
+            return False
 
 
 class SolanaApi(LedgerApi, SolanaHelper):
@@ -512,15 +496,13 @@ class SolanaApi(LedgerApi, SolanaHelper):
 
     def update_with_gas_estimate(self, transaction: JSONLike) -> JSONLike:
         """
-        **DO NOT NEED**
+        **NOT APPLICABLE**
         Attempts to update the transaction with a gas estimate
 
         :param transaction: the transaction
         :return: the updated transaction
         """
-        # gas_estimate = self._try_get_gas_estimate(transaction)
-        # if gas_estimate is not None:
-        #     transaction["gas"] = gas_estimate
+
         return transaction
 
     def get_balance(
@@ -968,44 +950,3 @@ class SolanaFaucetApi(FaucetApi):
                 )
             )
             return response['result']
-
-
-# class LruLockWrapper:
-#     """Wrapper for LRU with threading.Lock."""
-
-#     def __init__(self, lru: LRU) -> None:
-#         """Init wrapper."""
-#         self.lru = lru
-#         self.lock = threading.Lock()
-
-#     def __getitem__(self, *args: Any, **kwargs: Any) -> Any:
-#         """Get item"""
-#         with self.lock:
-#             return self.lru.__getitem__(*args, **kwargs)
-
-#     def __setitem__(self, *args: Any, **kwargs: Any) -> Any:
-#         """Set item."""
-#         with self.lock:
-#             return self.lru.__setitem__(*args, **kwargs)
-
-#     def __contains__(self, *args: Any, **kwargs: Any) -> Any:
-#         """Contain item."""
-#         with self.lock:
-#             return self.lru.__contains__(*args, **kwargs)
-
-#     def __delitem__(self, *args: Any, **kwargs: Any) -> Any:
-#         """Del item."""
-#         with self.lock:
-#             return self.lru.__delitem__(*args, **kwargs)
-
-
-# def set_wrapper_for_web3py_session_cache() -> None:
-#     """Wrap web3py session cache with threading.Lock."""
-
-#     # pylint: disable=protected-access
-#     web3._utils.request._session_cache = LruLockWrapper(
-#         web3._utils.request._session_cache
-#     )
-
-
-# set_wrapper_for_web3py_session_cache()
