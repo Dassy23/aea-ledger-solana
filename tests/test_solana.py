@@ -19,9 +19,8 @@
 # ------------------------------------------------------------------------------
 """This module contains the tests of the ethereum module."""
 
-import hashlib
 import logging
-import json
+import base58
 
 import time
 from pathlib import Path
@@ -39,7 +38,7 @@ from aea_ledger_solana import (
     Keypair
 )
 from solana.transaction import Transaction
-from ast import literal_eval
+from nacl.signing import VerifyKey
 
 
 from aea.common import JSONLike
@@ -99,40 +98,60 @@ def test_derive_address():
     assert account.address == address, "Address derivation incorrect"
 
 
-# def test_sign_and_recover_message():
-#     """Test the signing and the recovery function for the sol_crypto."""
-#     account = SolanaCrypto()
-#     sign_bytes = account.sign_message(message=b"hello")
-#     assert len(sign_bytes) > 0, "The len(signature) must not be 0"
-#     # recovered_addresses = SolanaApi.recover_message(
-#     #     message=b"hello", signature=sign_bytes
-#     # )
-#     # assert len(recovered_addresses) == 1, "Wrong number of addresses recovered."
-#     # assert (
-#     #     recovered_addresses[0] == account.address
-#     # ), "Failed to recover the correct address."
-
-
-# def test_sign_and_recover_message_public_key(ethereum_private_key_file):
-#     """Test the signing and the recovery function for the eth_crypto."""
-#     account = EthereumCrypto(ethereum_private_key_file)
-#     sign_bytes = account.sign_message(message=b"hello")
-#     assert len(sign_bytes) > 0, "The len(signature) must not be 0"
-#     recovered_public_keys = EthereumApi.recover_public_keys_from_message(
-#         message=b"hello", signature=sign_bytes
-#     )
-#     assert len(recovered_public_keys) == 1, "Wrong number of public keys recovered."
-#     assert (
-#         EthereumApi.get_address_from_public_key(recovered_public_keys[0])
-#         == account.address
-#     ), "Failed to recover the correct address."
-
-
 def test_get_hash():
     """Test the get hash functionality."""
     expected_hash = '2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824'
     hash_ = SolanaApi.get_hash(message=b"hello")
     assert expected_hash == hash_
+
+
+def test_is_address_valid():
+    """Test the get hash functionality."""
+    wallet = SolanaCrypto()
+    sa = SolanaApi()
+    assert sa.is_valid_address(wallet.address) == True
+
+    assert sa.is_valid_address("123IamNotReal") == False
+
+
+def test_sign_message():
+    """Test message sign functionality."""
+    wallet = SolanaCrypto()
+    wallet2 = SolanaCrypto()
+    msg = bytes("hello", 'utf8')
+    msg2 = bytes("hellooo", 'utf8')
+
+    sig = wallet.sign_message(msg)
+
+    try:
+        result = VerifyKey(
+            bytes(wallet.public_key)
+        ).verify(
+            smessage=msg2,
+            signature=bytes(sig.to_bytes_array())
+        )
+    except Exception as e:
+        assert e.args[0] == 'Signature was forged or corrupt'
+
+    try:
+        result = VerifyKey(
+            bytes(wallet2.public_key)
+        ).verify(
+            smessage=msg,
+            signature=bytes(sig.to_bytes_array())
+        )
+    except Exception as e:
+        assert e.args[0] == 'Signature was forged or corrupt'
+
+    result = VerifyKey(
+        bytes(wallet.public_key)
+
+    ).verify(
+        smessage=msg,
+        signature=bytes(sig.to_bytes_array())
+    )
+
+    assert result == msg, "Failed to sign message"
 
 
 @pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
@@ -390,10 +409,17 @@ def test_load_contract_instance():
 
 def test_get_transaction_transfer_logs(solana_private_key_file):
     """Test SolanaApi.get_transaction_transfer_logs."""
-    account1 = SolanaCrypto(private_key_path=solana_private_key_file)
-    account2 = SolanaCrypto()
-
+    faucet = SolanaFaucetApi()
     solana_api = SolanaApi()
+
+    account1 = SolanaCrypto(solana_private_key_file)
+
+    tx = faucet.get_wealth(account1.address, 2)
+    assert tx is not None, "Generate wealth failed"
+    transaction_receipt, is_settled = _wait_get_receipt(solana_api, tx)
+    assert is_settled is True
+
+    account2 = SolanaCrypto()
 
     balance1 = solana_api.get_balance(account1.public_key)
     balance2 = solana_api.get_balance(account2.public_key)
@@ -419,11 +445,9 @@ def test_get_transaction_transfer_logs(solana_private_key_file):
 
     assert tx['blockTime'] == transaction_receipt['blockTime'], "Should be same"
 
-    # logs = solana_api.get_transaction_transfer_logs(transaction_digest)
-    # logs_limited = solana_api.get_transaction_transfer_logs(
-    #     transaction_digest, account1.address)
-
-    # assert True is True
+    logs = solana_api.get_transaction_transfer_logs(transaction_digest)
+    assert "preBalances" in logs
+    assert "postBalances" in logs
 
 
 @pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
