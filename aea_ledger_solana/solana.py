@@ -278,6 +278,7 @@ class SolanaHelper(Helper):
     def load_contract_interface(cls,
                                 idl_file_path: Optional[Path] = None,
                                 program_keypair: Optional[Crypto] = None,
+                                program_address: Optional[str] = None,
                                 rpc_api: Optional[str] = None,
                                 bytecode_path: Optional[Path] = None,
                                 ) -> Dict[str, str]:
@@ -296,12 +297,14 @@ class SolanaHelper(Helper):
             bytecode = in_file.read()
         else:
             bytecode = None
-        if program_keypair is not None and rpc_api is not None:
+
+        if (program_keypair is not None or program_address is not None) and rpc_api is not None:
             try:
+                pid = program_address if program_address is not None else program_keypair.address
                 base = PublicKey.find_program_address(
-                    [], PublicKey(program_keypair))[0]
+                    [], PublicKey(pid))[0]
                 idl_address = PublicKey.create_with_seed(
-                    base, "anchor:idl", PublicKey(program_keypair.address))
+                    base, "anchor:idl", PublicKey(pid))
                 client = Client(endpoint=rpc_api)
                 account_info = client.get_account_info(idl_address)
 
@@ -313,7 +316,7 @@ class SolanaHelper(Helper):
                 inflated_idl = _pako_inflate(
                     bytes(idl_account["data"])).decode()
                 json_idl = json.loads(inflated_idl)
-                return {"idl": json_idl, "bytecode": bytecode, "program_keypair": program_keypair}
+                return {"idl": json_idl, "bytecode": bytecode, "program_address": program_address, "program_keypair": program_keypair}
             except Exception as e:
                 raise Exception("Could not locate IDL")
 
@@ -321,7 +324,7 @@ class SolanaHelper(Helper):
             with open_file(idl_file_path, "r") as interface_file_solana:
                 json_idl = json.load(interface_file_solana)
 
-            return {"idl": json_idl, "bytecode": bytecode, "program_keypair": program_keypair}
+            return {"idl": json_idl, "bytecode": bytecode, "program_address": program_address, "program_keypair": program_keypair}
         else:
             raise Exception("Could not locate IDL")
 
