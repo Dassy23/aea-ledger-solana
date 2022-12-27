@@ -408,11 +408,9 @@ class SolanaHelper(Helper):
 
     def generate_tx_nonce(self) -> str:
         """
-        Generate a unique hash to distinguish transactions with the same terms.
+        Fetch a latest blockhash to distinguish transactions with the same terms.
 
-        :param self: .
-        :param client: the address of the client.
-        :return: return the hash in hex.
+        :return: return the blockhash as a nonce.
         """
         try:
             blockhash = self.BlockhashCache.get()
