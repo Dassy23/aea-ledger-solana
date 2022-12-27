@@ -69,6 +69,7 @@ _default_logger = logging.getLogger(__name__)
 _SOLANA = "solana"
 TESTNET_NAME = "n/a"
 DEFAULT_ADDRESS = "https://api.devnet.solana.com"
+# DEFAULT_ADDRESS = "http://localhost:8899"
 DEFAULT_CHAIN_ID = "solana"
 DEFAULT_CURRENCY_DENOM = "lamports"
 RENT_EXEMPT_AMOUNT = 1000000
@@ -478,7 +479,7 @@ class SolanaApi(LedgerApi, SolanaHelper):
         :param kwargs: keyword arguments
         """
         self._api = Client(
-            endpoint=kwargs.pop("address", DEFAULT_ADDRESS)
+            endpoint=kwargs.pop("address", DEFAULT_ADDRESS), commitment="confirmed"
         )
 
         self.BlockhashCache = BlockhashCache(ttl=10)
@@ -542,7 +543,7 @@ class SolanaApi(LedgerApi, SolanaHelper):
 
         account_object = self._api.get_account_info_json_parsed(
             PublicKey(address))
-        account_info_val = account_object.value.data
+        account_info_val = account_object.value
         return account_info_val
 
     def get_transfer_transaction(  # pylint: disable=arguments-differ
@@ -606,7 +607,10 @@ class SolanaApi(LedgerApi, SolanaHelper):
         tx_digest = self._try_send_signed_transaction(
             tx_signed, raise_on_try=raise_on_try
         )
-        tx = json.loads(tx_digest)
+        try:
+            tx = json.loads(tx_digest)
+        except Exception as e:
+            print(e)
         return tx['result']
 
     @ try_decorator("Unable to send transaction: {}", logger_method="warning")
@@ -742,7 +746,7 @@ class SolanaApi(LedgerApi, SolanaHelper):
         idl = Idl.from_json(json.dumps(contract_interface["idl"]))
         pg = Program(idl, program_id)
 
-        pg.provider.connection = self._api
+        pg.provider.connection = self.api
 
         if bytecode_path is not None:
             # opening for [r]eading as [b]inary
@@ -937,7 +941,7 @@ class SolanaFaucetApi(FaucetApi):
         else:
             amount = LAMPORTS_PER_SOL*amount
 
-        solana_client = Client(url)
+        solana_client = Client(url, commitment='confirmed')
         response = None
         try:
             resp = solana_client.request_airdrop(
@@ -948,7 +952,7 @@ class SolanaFaucetApi(FaucetApi):
         response = (json.loads(resp.to_json()))
         if 'message' in response:
             _default_logger.error(
-                "Response: {}".format(response.get('message')))
+                "Response: {}".format(response.message))
             raise Exception(response.get('message'))
         if response['result'] == None:
             _default_logger.error("Response: {}".format("airdrop failed"))

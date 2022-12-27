@@ -51,6 +51,16 @@ from aea.crypto.helpers import DecryptError, KeyIsIncorrect
 from tests.conftest import MAX_FLAKY_RERUNS, ROOT_DIR, AIRDROP_AMOUNT
 
 
+def retry_airdrop_if_result_none(faucet, address, amount=None):
+    cnt = 0
+    tx = None
+    while tx is None and cnt < 10:
+        tx = faucet.get_wealth(address, amount)
+        cnt += 1
+        time.sleep(2)
+    return tx
+
+
 @pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
 @pytest.mark.integration
 @pytest.mark.ledger
@@ -83,8 +93,23 @@ def test_get_wealth_default(caplog, solana_private_key_file):
 
         tx_signature = solana_faucet_api.get_wealth(
             sc.address)
+        tx_signature = retry_airdrop_if_result_none(
+            faucet=solana_faucet_api, address=sc.address)
 
         assert tx_signature is not None
+
+
+@pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
+@pytest.mark.integration
+@pytest.mark.ledger
+def test_state_from_address(solana_private_key_file):
+    """Test the get_address_from_public_key method"""
+    account1 = SolanaCrypto(private_key_path=solana_private_key_file)
+
+    solana_api = SolanaApi()
+    account_state = solana_api.get_state("11111111111111111111111111111111")
+
+    assert hasattr(account_state, 'lamports'), "State not in correct format"
 
 
 def test_creation(solana_private_key_file):
@@ -343,19 +368,6 @@ def test_get_sol_balance(caplog, solana_private_key_file):
 @pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
 @pytest.mark.integration
 @pytest.mark.ledger
-def test_state_from_address(solana_private_key_file):
-    """Test the get_address_from_public_key method"""
-    account1 = SolanaCrypto(private_key_path=solana_private_key_file)
-
-    solana_api = SolanaApi()
-    account_state = solana_api.get_state(account1.address)
-
-    assert ("lamport" and "data" and "owner" and "rentEpoch") in account_state, "State not in correct format"
-
-
-@pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
-@pytest.mark.integration
-@pytest.mark.ledger
 def test_get_tx(caplog, solana_private_key_file):
     """Test get tx from signature"""
     with caplog.at_level(logging.DEBUG, logger="aea.crypto.solana._default_logger"):
@@ -418,7 +430,7 @@ def test_get_transaction_transfer_logs(solana_private_key_file):
 
     account1 = SolanaCrypto(solana_private_key_file)
 
-    tx = faucet.get_wealth(account1.address, 2)
+    tx = faucet.get_wealth(account1.address, 1)
     assert tx is not None, "Generate wealth failed"
     transaction_receipt, is_settled = _wait_get_receipt(solana_api, tx)
     assert is_settled is True
@@ -479,14 +491,14 @@ def test_deploy_program():
     interface = sa.load_contract_interface(
         idl_file_path=idl_path, bytecode_path=bytecode_path, program_keypair=program)
 
-    init = True
+    init = False
     if init:
         program.dump(str(program_keypair_path))
         payer.dump(str(payer_keypair_path))
 
         faucet = SolanaFaucetApi()
-
-        tx = faucet.get_wealth(payer.address, 2)
+        tx = retry_airdrop_if_result_none(faucet, payer.address, 1)
+        # tx = faucet.get_wealth(payer.address, 1)
         assert tx is not None, "Generate wealth failed"
         transaction_receipt, is_settled = _wait_get_receipt(sa, tx)
         assert is_settled is True
@@ -504,15 +516,6 @@ def test_deploy_program():
 @pytest.mark.ledger
 def test_contract_method_call():
     """Test the deploy contract method."""
-
-    def retry_airdrop_if_result_none(faucet, address, amount):
-        cnt = 0
-        tx = None
-        while tx is None and cnt < 5:
-            tx = faucet.get_wealth(address, amount)
-            cnt += 1
-            time.sleep(0.25)
-        return tx
 
     start = time.time()
     idl_path = Path(ROOT_DIR, "tests", "data",
@@ -542,14 +545,15 @@ def test_contract_method_call():
 
     faucet = SolanaFaucetApi()
 
-    tx = retry_airdrop_if_result_none(faucet, player1.address, 2)
-    assert tx is not None, "Generate wealth failed"
-    transaction_receipt, is_settled = _wait_get_receipt(sa, tx)
-    assert is_settled is True
+    # tx1 = retry_airdrop_if_result_none(faucet, player1.address, 1)
+    tx2 = retry_airdrop_if_result_none(faucet, player2.address, 1)
 
-    tx = retry_airdrop_if_result_none(faucet, player2.address, 2)
-    assert tx is not None, "Generate wealth failed"
-    transaction_receipt, is_settled = _wait_get_receipt(sa, tx)
+    # assert tx1 is not None, "Generate wealth failed"
+    # transaction_receipt, is_settled = _wait_get_receipt(sa, tx1)
+    # assert is_settled is True
+
+    assert tx2 is not None, "Generate wealth failed"
+    transaction_receipt, is_settled = _wait_get_receipt(sa, tx2)
     assert is_settled is True
 
     # setup game
@@ -576,7 +580,7 @@ def test_contract_method_call():
         sa, transaction_digest)
     assert is_settled is True
     state = sa.get_state(game.public_key)
-    decoded_state = program.coder.accounts.decode(state)
+    decoded_state = program.coder.accounts.decode(state.data)
 
     player1 = payer
     player2 = player2
@@ -614,7 +618,7 @@ def test_contract_method_call():
             sa, transaction_digest)
         assert is_settled is True
         state = sa.get_state(game.public_key)
-        decoded_state = program.coder.accounts.decode(state)
+        decoded_state = program.coder.accounts.decode(state.data)
 
         if row == 0:
             column += 1

@@ -41,7 +41,7 @@ CUR_PATH = os.path.dirname(inspect.getfile(
     inspect.currentframe()))  # type: ignore
 ROOT_DIR = os.path.join(CUR_PATH, "..")
 MAX_FLAKY_RERUNS = 3
-AIRDROP_AMOUNT = 2
+AIRDROP_AMOUNT = 1
 
 SOLANA = SolanaCrypto.identifier
 
