@@ -21,6 +21,7 @@
 
 import logging
 import base58
+import asyncio
 
 import time
 from pathlib import Path
@@ -35,9 +36,12 @@ from aea_ledger_solana import (
     SolanaFaucetApi,
     LAMPORTS_PER_SOL,
     PublicKey,
-    Keypair
+    Keypair,
+    Wallet
 )
 from solana.transaction import Transaction
+from anchorpy import Context
+
 from nacl.signing import VerifyKey
 
 
@@ -173,7 +177,7 @@ def _wait_get_receipt(
     not_settled = True
     elapsed_time = 0
     time_to_wait = 40
-    sleep_time = 1
+    sleep_time = 0.25
     while not_settled and elapsed_time < time_to_wait:
         elapsed_time += sleep_time
         time.sleep(sleep_time)
@@ -498,9 +502,19 @@ def test_deploy_program():
 @pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
 @pytest.mark.integration
 @pytest.mark.ledger
-def test_program_method_call():
+def test_contract_method_call():
     """Test the deploy contract method."""
 
+    def retry_airdrop_if_result_none(faucet, address, amount):
+        cnt = 0
+        tx = None
+        while tx is None and cnt < 5:
+            tx = faucet.get_wealth(address, amount)
+            cnt += 1
+            time.sleep(0.25)
+        return tx
+
+    start = time.time()
     idl_path = Path(ROOT_DIR, "tests", "data",
                     "tic-tac-toe", "target", "idl", "tic_tac_toe.json")
     bytecode_path = Path(ROOT_DIR, "tests", "data",
@@ -511,27 +525,99 @@ def test_program_method_call():
         ROOT_DIR, "tests", "data", "solana_private_key.txt")
 
     sa = SolanaApi()
-
-    program = SolanaCrypto(str(program_keypair_path))
     payer = SolanaCrypto(str(payer_keypair_path))
-    # program = SolanaCrypto()
-    # payer = SolanaCrypto()
+    program_kp = SolanaCrypto(str(program_keypair_path))
 
     interface = sa.load_contract_interface(
-        idl_file_path=idl_path, bytecode_path=bytecode_path, program_keypair=program)
+        idl_file_path=idl_path, bytecode_path=bytecode_path, program_keypair=program_kp)
 
-    init = True
-    if init:
-        program.dump(str(program_keypair_path))
-        payer.dump(str(payer_keypair_path))
+    instance = sa.get_contract_instance(
+        contract_interface=interface, contract_address=program_kp.address)
 
-        faucet = SolanaFaucetApi()
+    program = instance['program']
 
-        tx = faucet.get_wealth(payer.address, 2)
-        assert tx is not None, "Generate wealth failed"
-        transaction_receipt, is_settled = _wait_get_receipt(sa, tx)
+    player1 = payer
+    player2 = SolanaCrypto()
+    game = SolanaCrypto()
+
+    faucet = SolanaFaucetApi()
+
+    tx = retry_airdrop_if_result_none(faucet, player1.address, 2)
+    assert tx is not None, "Generate wealth failed"
+    transaction_receipt, is_settled = _wait_get_receipt(sa, tx)
+    assert is_settled is True
+
+    tx = retry_airdrop_if_result_none(faucet, player2.address, 2)
+    assert tx is not None, "Generate wealth failed"
+    transaction_receipt, is_settled = _wait_get_receipt(sa, tx)
+    assert is_settled is True
+
+    # setup game
+    program.provider.wallet = Wallet(payer.entity)
+
+    accounts = {
+        "game": game.public_key,
+        "player_one": payer.public_key,
+        "system_program": PublicKey("11111111111111111111111111111111")}
+
+    tx = sa.build_transaction(program, "setup_game", method_args={
+        "data": player2.public_key,
+        "accounts": accounts
+    }, tx_args=None)
+
+    nonce = sa.generate_tx_nonce()
+    signed_transaction = game.sign_transaction(
+        tx, nonce, [payer])
+
+    transaction_digest = sa.send_signed_transaction(
+        signed_transaction)
+    assert tx is not None
+    transaction_receipt, is_settled = _wait_get_receipt(
+        sa, transaction_digest)
+    assert is_settled is True
+    state = sa.get_state(game.public_key)
+    decoded_state = program.coder.accounts.decode(state)
+
+    player1 = payer
+    player2 = player2
+    column = 0
+    print(time.time() - start)
+
+    # game loop
+    start = time.time()
+    while decoded_state.state.index == 0:
+
+        active_player = player2 if decoded_state.turn % 2 == 0 else player1
+        row = 0 if decoded_state.turn % 2 == 0 else 1
+        accounts = {
+            "game": game.public_key,
+            "player": active_player.public_key}
+
+        tile = program.type['Tile'](row=row, column=column)
+
+        tx = sa.build_transaction(program, "play",
+                                  method_args={
+                                      "data": tile,
+                                      "accounts": accounts
+                                  },
+                                  tx_args=None)
+
+        tx.fee_payer = active_player.public_key
+        nonce = sa.generate_tx_nonce()
+        signed_transaction = active_player.sign_transaction(
+            tx, nonce, [])
+
+        transaction_digest = sa.send_signed_transaction(
+            signed_transaction)
+        assert tx is not None
+        transaction_receipt, is_settled = _wait_get_receipt(
+            sa, transaction_digest)
         assert is_settled is True
+        state = sa.get_state(game.public_key)
+        decoded_state = program.coder.accounts.decode(state)
 
-        balance = sa.get_balance(payer.address)
-        assert balance >= 2 * LAMPORTS_PER_SOL
-        print("Payer Balance: " + str(balance/LAMPORTS_PER_SOL) + " SOL")
+        if row == 0:
+            column += 1
+
+    print(time.time() - start)
+    assert decoded_state.state.winner == player1.public_key

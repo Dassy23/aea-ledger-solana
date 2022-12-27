@@ -54,14 +54,15 @@ from cryptography.fernet import Fernet
 from pathlib import Path
 import json
 from solana.transaction import Transaction
-from anchorpy import Program
+from anchorpy import Program, Provider, Wallet, Context
 from anchorpy.idl import _decode_idl_account, _idl_address
 from anchorpy.coder.accounts import ACCOUNT_DISCRIMINATOR_SIZE
 from solana.system_program import TransferParams, transfer
 from solana.transaction import Transaction, TransactionInstruction, AccountMeta
 from solana.system_program import create_account, SYS_PROGRAM_ID
 from solana.system_program import CreateAccountParams
-
+import asyncio
+from solana.rpc.async_api import AsyncClient
 
 _default_logger = logging.getLogger(__name__)
 
@@ -541,7 +542,7 @@ class SolanaApi(LedgerApi, SolanaHelper):
 
         account_object = self._api.get_account_info_json_parsed(
             PublicKey(address))
-        account_info_val = json.loads(account_object.value.to_json())
+        account_info_val = account_object.value.data
         return account_info_val
 
     def get_transfer_transaction(  # pylint: disable=arguments-differ
@@ -740,6 +741,9 @@ class SolanaApi(LedgerApi, SolanaHelper):
         program_id = PublicKey(contract_address)
         idl = Idl.from_json(json.dumps(contract_interface["idl"]))
         pg = Program(idl, program_id)
+
+        pg.provider.connection = self._api
+
         if bytecode_path is not None:
             # opening for [r]eading as [b]inary
             in_file = open(bytecode_path, "rb")
@@ -829,7 +833,6 @@ class SolanaApi(LedgerApi, SolanaHelper):
         raise_on_try: bool = False,
     ) -> Optional[JSONLike]:
         """Prepare a transaction
-        **TOBEIMPLEMENTED**
 
         :param contract_instance: the contract to use
         :param method_name: the contract method to call
@@ -838,8 +841,17 @@ class SolanaApi(LedgerApi, SolanaHelper):
         :param raise_on_try: whether the method will raise or log on error
         :return: the transaction
         """
+        if method_args['data'] is None:
+            raise ValueError("Data is required")
+        if method_args['accounts'] is None:
+            raise ValueError("Accounts are required")
 
-        return {}
+        data = method_args['data']
+        accounts = method_args['accounts']
+        tx = contract_instance.transaction[method_name](data, ctx=Context(
+            accounts=accounts))
+
+        return tx
 
     def get_transaction_transfer_logs(  # pylint: disable=too-many-arguments,too-many-locals
         self,
