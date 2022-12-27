@@ -775,11 +775,15 @@ class SolanaApi(LedgerApi, SolanaHelper):
         """
 
         if contract_interface["bytecode"] is None or contract_interface["program_keypair"] is None:
-            print("huh")
             raise ValueError("Bytecode or program_keypair is required")
 
-        # save keys in uint8 array temp
+        # check if solana cli is installed
+        result = subprocess.run(
+            ["solana --version"], capture_output=True, text=True, shell=True)
+        if result.stderr != "":
+            raise ValueError(result.stderr)
 
+        # save keys in uint8 array temp
         value = struct.unpack('64B', payer_keypair.entity.secret_key)
         uint8_array = array.array('B', value)
         payer_uint8 = uint8_array.tolist()
