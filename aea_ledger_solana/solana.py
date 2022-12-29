@@ -62,13 +62,13 @@ from solana.transaction import Transaction, TransactionInstruction, AccountMeta
 from solana.system_program import create_account, SYS_PROGRAM_ID
 from solana.system_program import CreateAccountParams
 import asyncio
-from solana.rpc.async_api import AsyncClient
+from spl.token.core import _TokenCore
 
 _default_logger = logging.getLogger(__name__)
 
 _SOLANA = "solana"
 TESTNET_NAME = "n/a"
-DEFAULT_ADDRESS = "https://api.devnet.solana.com"
+DEFAULT_ADDRESS = "https://qn-devnet.solana.fm/"
 # DEFAULT_ADDRESS = "http://localhost:8899"
 DEFAULT_CHAIN_ID = "solana"
 DEFAULT_CURRENCY_DENOM = "lamports"
