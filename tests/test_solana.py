@@ -613,7 +613,7 @@ def test_contract_method_call():
 
         transaction_digest = sa.send_signed_transaction(
             signed_transaction)
-        assert tx is not None
+        assert transaction_digest is not None
         transaction_receipt, is_settled = _wait_get_receipt(
             sa, transaction_digest)
         assert is_settled is True

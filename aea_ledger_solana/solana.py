@@ -27,6 +27,7 @@ import struct
 import array
 import subprocess
 import tempfile
+from typing import NewType
 
 
 from pathlib import Path
@@ -68,11 +69,12 @@ _default_logger = logging.getLogger(__name__)
 
 _SOLANA = "solana"
 TESTNET_NAME = "n/a"
-DEFAULT_ADDRESS = "https://qn-devnet.solana.fm/"
+DEFAULT_ADDRESS = "https://api.devnet.solana.com"
 # DEFAULT_ADDRESS = "http://localhost:8899"
 DEFAULT_CHAIN_ID = "solana"
 DEFAULT_CURRENCY_DENOM = "lamports"
 RENT_EXEMPT_AMOUNT = 1000000
+
 LAMPORTS_PER_SOL = 1000000000
 _IDL = "idl"
 _BYTECODE = "bytecode"
@@ -476,8 +478,15 @@ class SolanaApi(LedgerApi, SolanaHelper):
 
         :param kwargs: keyword arguments
         """
+
+        Commitment = NewType("Commitment", str)
+        """Type for commitment."""
+
+        Finalized = Commitment("finalized")
+        Confirmed = Commitment("confirmed")
+
         self._api = Client(
-            endpoint=kwargs.pop("address", DEFAULT_ADDRESS), commitment="confirmed"
+            endpoint=kwargs.pop("address", DEFAULT_ADDRESS), commitment=Confirmed
         )
 
         self.BlockhashCache = BlockhashCache(ttl=10)
@@ -488,6 +497,7 @@ class SolanaApi(LedgerApi, SolanaHelper):
         self.BlockhashCache.set(blockhash=hash, slot=result.context.slot)
 
         self._chain_id = kwargs.pop("chain_id", DEFAULT_CHAIN_ID)
+        self._version = "0.0.1"
 
     @ property
     def api(self) -> Client:
@@ -603,7 +613,7 @@ class SolanaApi(LedgerApi, SolanaHelper):
         :return: tx_digest, if present
         """
         tx_digest = self._try_send_signed_transaction(
-            tx_signed, raise_on_try=raise_on_try
+            tx_signed, raise_on_try=True
         )
         try:
             tx = json.loads(tx_digest)
@@ -623,13 +633,12 @@ class SolanaApi(LedgerApi, SolanaHelper):
             `raise_on_try`: bool flag specifying whether the method will raise or log on error (used by `try_decorator`)
         :return: tx_digest, if present
         """
-        try:
-            # txOpts = types.TxOpts(skip_preflight=True)
 
-            txn_resp = self._api.send_raw_transaction(
-                tx_signed.serialize())
-        except Exception as e:
-            raise Exception(e)
+        # txOpts = types.TxOpts(skip_preflight=True)
+
+        txn_resp = self._api.send_raw_transaction(
+            tx_signed.serialize())
+
         return txn_resp.to_json()
 
     def get_transaction_receipt(
@@ -663,11 +672,10 @@ class SolanaApi(LedgerApi, SolanaHelper):
             `raise_on_try`: bool flag specifying whether the method will raise or log on error (used by `try_decorator`)
         :return: the tx receipt, if present
         """
-        try:
-            tx_receipt = self._api.get_transaction(
-                Signature.from_string(tx_digest))  # pylint: disable=no-member
-        except Exception as e:
-            print(e)
+
+        tx_receipt = self._api.get_transaction(
+            Signature.from_string(tx_digest))  # pylint: disable=no-member
+
         tx = json.loads(tx_receipt.to_json())
         return tx["result"]
 
