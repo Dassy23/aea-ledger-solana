@@ -61,6 +61,32 @@ def retry_airdrop_if_result_none(faucet, address, amount=None):
     return tx
 
 
+def _generate_wealth_if_needed(api, address, amount=None) -> Union[str, None]:
+
+    balance = api.get_balance(address)
+
+    if balance >= 1000000000:
+        return "not required"
+    else:
+        faucet = SolanaFaucetApi()
+        cnt = 0
+        transaction_digest = None
+        while transaction_digest is None and cnt < 10:
+            transaction_digest = faucet.get_wealth(address, amount)
+            cnt += 1
+            time.sleep(4)
+
+        if transaction_digest == None:
+            return "failed"
+        else:
+            transaction_receipt, is_settled = _wait_get_receipt(
+                api, transaction_digest)
+            if is_settled is True:
+                return "success"
+            else:
+                return "failed"
+
+
 @pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
 @pytest.mark.integration
 @pytest.mark.ledger
@@ -224,11 +250,6 @@ def _construct_and_settle_tx(
 ) -> Tuple[str, JSONLike, bool]:
     """Construct and settle a transaction."""
     transfer_transaction = solana_api.get_transfer_transaction(**tx_params)
-
-    assert (
-        isinstance(transfer_transaction, Transaction)
-    ), "Incorrect transfer_transaction constructed."
-
     nonce = solana_api.generate_tx_nonce()
 
     if tx_params['unfunded_account']:
@@ -239,10 +260,6 @@ def _construct_and_settle_tx(
     signed_transaction = account1.sign_transaction(
         transfer_transaction, nonce, signers
     )
-
-    assert (
-        isinstance(signed_transaction, Transaction)
-    ), "Incorrect signed_transaction constructed."
 
     transaction_digest = solana_api.send_signed_transaction(signed_transaction)
     assert transaction_digest is not None, "Failed to submit transfer transaction!"
@@ -264,6 +281,9 @@ def test_unfunded_transfer_transaction(solana_private_key_file):
     account1 = SolanaCrypto(private_key_path=solana_private_key_file)
     account2 = SolanaCrypto()
     solana_api = SolanaApi()
+    resp = _generate_wealth_if_needed(solana_api, account1.address)
+    assert resp != "failed", "Failed to generate wealth"
+
     balance1 = solana_api.get_balance(account1.address)
     balance2 = solana_api.get_balance(account2.address)
     AMOUNT = 1232323
@@ -302,16 +322,12 @@ def test_funded_transfer_transaction(solana_private_key_file):
 
     solana_api = SolanaApi()
     solana_faucet_api = SolanaFaucetApi()
-
-    transaction_digest = solana_faucet_api.get_wealth(
-        account2.public_key, AIRDROP_AMOUNT)
-
-    transaction_receipt, is_settled = _wait_get_receipt(
-        solana_api, transaction_digest
-    )
+    resp = _generate_wealth_if_needed(solana_api, account1.address)
+    assert resp != "failed", "Failed to generate wealth"
+    resp = _generate_wealth_if_needed(solana_api, account2.address)
+    assert resp != "failed", "Failed to generate wealth"
 
     balance1 = solana_api.get_balance(account1.public_key)
-
     balance2 = solana_api.get_balance(account2.public_key)
     counter = 0
     flag = True
@@ -430,10 +446,8 @@ def test_get_transaction_transfer_logs(solana_private_key_file):
 
     account1 = SolanaCrypto(solana_private_key_file)
 
-    tx = faucet.get_wealth(account1.address, 1)
-    assert tx is not None, "Generate wealth failed"
-    transaction_receipt, is_settled = _wait_get_receipt(solana_api, tx)
-    assert is_settled is True
+    resp = _generate_wealth_if_needed(solana_api, account1.address)
+    assert resp != "failed", "Failed to generate wealth"
 
     account2 = SolanaCrypto()
 
@@ -545,16 +559,11 @@ def test_contract_method_call():
 
     faucet = SolanaFaucetApi()
 
-    # tx1 = retry_airdrop_if_result_none(faucet, player1.address, 1)
-    tx2 = retry_airdrop_if_result_none(faucet, player2.address, 1)
+    resp = _generate_wealth_if_needed(sa, payer.address)
+    assert resp != "failed", "Failed to generate wealth"
 
-    # assert tx1 is not None, "Generate wealth failed"
-    # transaction_receipt, is_settled = _wait_get_receipt(sa, tx1)
-    # assert is_settled is True
-
-    assert tx2 is not None, "Generate wealth failed"
-    transaction_receipt, is_settled = _wait_get_receipt(sa, tx2)
-    assert is_settled is True
+    resp = _generate_wealth_if_needed(sa, player2.address)
+    assert resp != "failed", "Failed to generate wealth"
 
     # setup game
     program.provider.wallet = Wallet(payer.entity)
@@ -606,7 +615,6 @@ def test_contract_method_call():
                                   },
                                   tx_args=None)
 
-        tx.fee_payer = active_player.public_key
         nonce = sa.generate_tx_nonce()
         signed_transaction = active_player.sign_transaction(
             tx, nonce, [])

@@ -47,6 +47,7 @@ from solana.rpc.api import Client
 from solana.blockhash import Blockhash, BlockhashCache
 from solana.keypair import Keypair
 from solders.signature import Signature
+from solders.transaction import Transaction as sTransaction
 
 from anchorpy import Idl
 from cryptography.fernet import Fernet
@@ -202,19 +203,23 @@ class SolanaCrypto(Crypto[Keypair]):
         :param recent_blockhash: a recent blockhash
         :return: signed transaction
         """
+        jsonTx = json.dumps(transaction)
+        stxn = sTransaction.from_json(jsonTx)
+        txn = Transaction.from_solders(stxn)
 
         keypair = Keypair.from_secret_key(base58.b58decode(self.private_key))
         signers = [Keypair.from_secret_key(base58.b58decode(
             signer.private_key)) for signer in signers]
-        transaction.recent_blockhash = nonce
+        txn.recent_blockhash = nonce
         signers.append(keypair)
 
         try:
-            transaction.sign(*signers)
+            txn.sign(*signers)
         except Exception as e:
             raise Exception(e)
 
-        return transaction
+        tx = txn._solders.to_json()
+        return json.loads(tx)
 
     @ classmethod
     def generate_private_key(
@@ -497,7 +502,7 @@ class SolanaApi(LedgerApi, SolanaHelper):
         self.BlockhashCache.set(blockhash=hash, slot=result.context.slot)
 
         self._chain_id = kwargs.pop("chain_id", DEFAULT_CHAIN_ID)
-        self._version = "0.0.1"
+        self._version = "0.0.2"
 
     @ property
     def api(self) -> Client:
@@ -600,7 +605,8 @@ class SolanaApi(LedgerApi, SolanaHelper):
             txn = Transaction(fee_payer=sender_address).add(transfer(TransferParams(
                 from_pubkey=PublicKey(sender_address), to_pubkey=PublicKey(destination_address), lamports=amount)))
 
-        return txn
+        tx = txn._solders.to_json()
+        return json.loads(tx)
 
     def send_signed_transaction(
         self, tx_signed: JSONLike, raise_on_try: bool = False
@@ -635,9 +641,12 @@ class SolanaApi(LedgerApi, SolanaHelper):
         """
 
         # txOpts = types.TxOpts(skip_preflight=True)
+        jsonTx = json.dumps(tx_signed)
+        stxn = sTransaction.from_json(jsonTx)
+        txn = Transaction.from_solders(stxn)
 
         txn_resp = self._api.send_raw_transaction(
-            tx_signed.serialize())
+            txn.serialize())
 
         return txn_resp.to_json()
 
@@ -734,7 +743,8 @@ class SolanaApi(LedgerApi, SolanaHelper):
         createAccountInstruction = create_account(params)
         txn = Transaction(fee_payer=from_pubkey).add(
             createAccountInstruction)
-        return txn
+        tx = txn._solders.to_json()
+        return json.loads(tx)
 
     def get_contract_instance(
         self, contract_interface: Dict[str, str], contract_address: str, bytecode_path: Optional[Path] = None
@@ -862,10 +872,11 @@ class SolanaApi(LedgerApi, SolanaHelper):
 
         data = method_args['data']
         accounts = method_args['accounts']
-        tx = contract_instance.transaction[method_name](data, ctx=Context(
+        txn = contract_instance.transaction[method_name](data, ctx=Context(
             accounts=accounts))
 
-        return tx
+        tx = txn._solders.to_json()
+        return json.loads(tx)
 
     def get_transaction_transfer_logs(  # pylint: disable=too-many-arguments,too-many-locals
         self,
