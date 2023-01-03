@@ -502,7 +502,7 @@ class SolanaApi(LedgerApi, SolanaHelper):
         self.BlockhashCache.set(blockhash=hash, slot=result.context.slot)
 
         self._chain_id = kwargs.pop("chain_id", DEFAULT_CHAIN_ID)
-        self._version = "0.0.2"
+        self._version = "1.24.1"
 
     @ property
     def api(self) -> Client:
