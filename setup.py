@@ -43,7 +43,6 @@ setup(
         "solana==0.27.2",
         "solders==0.9.3",
         "anchorpy==0.13.1",
-        "anchorpy-core==0.1.2",
         "base58==2.1.1",
         "cryptography",
         "lru-dict",

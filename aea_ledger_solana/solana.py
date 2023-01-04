@@ -57,7 +57,7 @@ from cryptography.fernet import Fernet
 from pathlib import Path
 import json
 from solana.transaction import Transaction
-from anchorpy import Program, Provider, Wallet, Context
+from anchorpy import Program, Context
 from anchorpy.idl import _decode_idl_account, _idl_address
 from anchorpy.coder.accounts import ACCOUNT_DISCRIMINATOR_SIZE
 from solana.system_program import TransferParams, transfer
