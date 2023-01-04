@@ -22,7 +22,8 @@
 import logging
 import base58
 import asyncio
-
+import struct
+import array
 import time
 from pathlib import Path
 from typing import Dict, Generator, Optional, Tuple, Union, cast
@@ -251,6 +252,7 @@ def _construct_and_settle_tx(
     """Construct and settle a transaction."""
     transfer_transaction = solana_api.get_transfer_transaction(**tx_params)
     nonce = solana_api.generate_tx_nonce()
+    transfer_transaction['message']['recentBlockhash'] = nonce
 
     if tx_params['unfunded_account']:
         signers = [account2]
@@ -258,7 +260,7 @@ def _construct_and_settle_tx(
         signers = []
 
     signed_transaction = account1.sign_transaction(
-        transfer_transaction, nonce, signers
+        transfer_transaction, signers
     )
 
     transaction_digest = solana_api.send_signed_transaction(signed_transaction)
@@ -312,9 +314,9 @@ def test_unfunded_transfer_transaction(solana_private_key_file):
     assert AMOUNT == balance3, "Should be the same balance"
 
 
-@pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
-@pytest.mark.integration
-@pytest.mark.ledger
+@ pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
+@ pytest.mark.integration
+@ pytest.mark.ledger
 def test_funded_transfer_transaction(solana_private_key_file):
     """Test the construction, signing and submitting of a transfer transaction."""
     account1 = SolanaCrypto(private_key_path=solana_private_key_file)
@@ -367,9 +369,9 @@ def test_funded_transfer_transaction(solana_private_key_file):
                    LAMPORTS_PER_SOL) == balance3, "Should be the same balance"
 
 
-@pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
-@pytest.mark.integration
-@pytest.mark.ledger
+@ pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
+@ pytest.mark.integration
+@ pytest.mark.ledger
 def test_get_sol_balance(caplog, solana_private_key_file):
     """Test the balance is zero for a new account."""
     with caplog.at_level(logging.DEBUG, logger="aea.crypto.solana._default_logger"):
@@ -381,9 +383,9 @@ def test_get_sol_balance(caplog, solana_private_key_file):
         assert isinstance(balance, int)
 
 
-@pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
-@pytest.mark.integration
-@pytest.mark.ledger
+@ pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
+@ pytest.mark.integration
+@ pytest.mark.ledger
 def test_get_tx(caplog, solana_private_key_file):
     """Test get tx from signature"""
     with caplog.at_level(logging.DEBUG, logger="aea.crypto.solana._default_logger"):
@@ -554,8 +556,13 @@ def test_contract_method_call():
     program = instance['program']
 
     player1 = payer
-    player2 = SolanaCrypto()
+    # player2 = SolanaCrypto()
+    player2 = SolanaCrypto("./player2_solana_private_key.txt")
     game = SolanaCrypto()
+
+    print("game: " + str(game.address))
+    print("p1 - payer: " + str(player1.address))
+    print("p2: " + str(player2.address))
 
     faucet = SolanaFaucetApi()
 
@@ -579,8 +586,12 @@ def test_contract_method_call():
     }, tx_args=None)
 
     nonce = sa.generate_tx_nonce()
+    # print(nonce)
+    tx['message']['recentBlockhash'] = nonce
+    # tx.recent_blockhash = nonce
+
     signed_transaction = game.sign_transaction(
-        tx, nonce, [payer])
+        tx, [payer])
 
     transaction_digest = sa.send_signed_transaction(
         signed_transaction)
@@ -604,20 +615,24 @@ def test_contract_method_call():
         row = 0 if decoded_state.turn % 2 == 0 else 1
         accounts = {
             "game": game.public_key,
-            "player": active_player.public_key}
+            "player": active_player.public_key
+        }
 
         tile = program.type['Tile'](row=row, column=column)
 
-        tx = sa.build_transaction(program, "play",
-                                  method_args={
-                                      "data": tile,
-                                      "accounts": accounts
-                                  },
-                                  tx_args=None)
+        tx1 = sa.build_transaction(program, "play",
+                                   method_args={
+                                       "data": tile,
+                                       "accounts": accounts
+                                   },
+                                   tx_args=None)
 
         nonce = sa.generate_tx_nonce()
+        # print(nonce)
+        tx1['message']['recentBlockhash'] = nonce
+        # tx1.recent_blockhash = nonce
         signed_transaction = active_player.sign_transaction(
-            tx, nonce, [])
+            tx1, )
 
         transaction_digest = sa.send_signed_transaction(
             signed_transaction)

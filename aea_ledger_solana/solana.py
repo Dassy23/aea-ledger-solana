@@ -48,6 +48,7 @@ from solana.blockhash import Blockhash, BlockhashCache
 from solana.keypair import Keypair
 from solders.signature import Signature
 from solders.transaction import Transaction as sTransaction
+from solders.hash import Hash
 
 from anchorpy import Idl
 from cryptography.fernet import Fernet
@@ -195,7 +196,7 @@ class SolanaCrypto(Crypto[Keypair]):
 
         return signed_msg
 
-    def sign_transaction(self, transaction: JSONLike, nonce: str, signers: Optional[list] = []) -> JSONLike:
+    def sign_transaction(self, transaction: JSONLike, signers: Optional[list] = []) -> JSONLike:
         """
         Sign a transaction in bytes string form.
 
@@ -203,14 +204,16 @@ class SolanaCrypto(Crypto[Keypair]):
         :param recent_blockhash: a recent blockhash
         :return: signed transaction
         """
+
         jsonTx = json.dumps(transaction)
         stxn = sTransaction.from_json(jsonTx)
         txn = Transaction.from_solders(stxn)
 
+        # txn = transaction
+
         keypair = Keypair.from_secret_key(base58.b58decode(self.private_key))
         signers = [Keypair.from_secret_key(base58.b58decode(
             signer.private_key)) for signer in signers]
-        txn.recent_blockhash = nonce
         signers.append(keypair)
 
         try:
@@ -220,6 +223,7 @@ class SolanaCrypto(Crypto[Keypair]):
 
         tx = txn._solders.to_json()
         return json.loads(tx)
+        # return txn
 
     @ classmethod
     def generate_private_key(
@@ -421,6 +425,7 @@ class SolanaHelper(Helper):
         """
         try:
             blockhash = self.BlockhashCache.get()
+            return json.loads(((Hash.from_string(blockhash)).to_json()))
             return blockhash
         except Exception as e:
             result = self._api.get_latest_blockhash()
@@ -428,6 +433,7 @@ class SolanaHelper(Helper):
             blockhash = json.loads(blockhash_json)
             self.BlockhashCache.set(
                 blockhash=blockhash['blockhash'], slot=result.context.slot)
+            return json.loads((Hash.from_string(blockhash['blockhash'])).to_json())
             return blockhash['blockhash']
 
     @ staticmethod
@@ -606,6 +612,7 @@ class SolanaApi(LedgerApi, SolanaHelper):
                 from_pubkey=PublicKey(sender_address), to_pubkey=PublicKey(destination_address), lamports=amount)))
 
         tx = txn._solders.to_json()
+
         return json.loads(tx)
 
     def send_signed_transaction(
@@ -641,12 +648,17 @@ class SolanaApi(LedgerApi, SolanaHelper):
         """
 
         # txOpts = types.TxOpts(skip_preflight=True)
+
         jsonTx = json.dumps(tx_signed)
         stxn = sTransaction.from_json(jsonTx)
         txn = Transaction.from_solders(stxn)
 
-        txn_resp = self._api.send_raw_transaction(
-            txn.serialize())
+        # txn = tx_signed
+        try:
+            txn_resp = self._api.send_raw_transaction(
+                txn.serialize())
+        except Exception as e:
+            print(e)
 
         return txn_resp.to_json()
 
@@ -874,9 +886,9 @@ class SolanaApi(LedgerApi, SolanaHelper):
         accounts = method_args['accounts']
         txn = contract_instance.transaction[method_name](data, ctx=Context(
             accounts=accounts))
-
         tx = txn._solders.to_json()
         return json.loads(tx)
+        # return txn
 
     def get_transaction_transfer_logs(  # pylint: disable=too-many-arguments,too-many-locals
         self,
