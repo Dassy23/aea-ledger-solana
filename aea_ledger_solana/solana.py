@@ -655,11 +655,9 @@ class SolanaApi(LedgerApi, SolanaHelper):
         txn = Transaction.from_solders(stxn)
 
         # txn = tx_signed
-        try:
-            txn_resp = self._api.send_raw_transaction(
-                txn.serialize())
-        except Exception as e:
-            print(e)
+
+        txn_resp = self._api.send_raw_transaction(
+            txn.serialize())
 
         return txn_resp.to_json()
 
