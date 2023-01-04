@@ -28,7 +28,7 @@ import array
 import subprocess
 import tempfile
 from typing import NewType
-
+import os
 
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union, cast
@@ -69,6 +69,7 @@ from spl.token.core import _TokenCore as TokenCore
 
 _default_logger = logging.getLogger(__name__)
 
+_VERSION = "1.24.3"
 _SOLANA = "solana"
 TESTNET_NAME = "n/a"
 DEFAULT_ADDRESS = "https://api.devnet.solana.com"
@@ -508,7 +509,7 @@ class SolanaApi(LedgerApi, SolanaHelper):
         self.BlockhashCache.set(blockhash=hash, slot=result.context.slot)
 
         self._chain_id = kwargs.pop("chain_id", DEFAULT_CHAIN_ID)
-        self._version = "1.24.1"
+        self._version = _VERSION
 
     @ property
     def api(self) -> Client:
