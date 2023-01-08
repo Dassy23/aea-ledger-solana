@@ -69,7 +69,7 @@ from spl.token.core import _TokenCore as TokenCore
 
 _default_logger = logging.getLogger(__name__)
 
-_VERSION = "1.24.4"
+_VERSION = "1.24.5"
 _SOLANA = "solana"
 TESTNET_NAME = "n/a"
 DEFAULT_ADDRESS = "https://api.devnet.solana.com"
@@ -329,6 +329,7 @@ class SolanaHelper(Helper):
                 json_idl = json.loads(inflated_idl)
                 return {"idl": json_idl, "bytecode": bytecode, "program_address": program_address, "program_keypair": program_keypair}
             except Exception as e:
+
                 raise Exception("Could not locate IDL")
 
         elif idl_file_path is not None:
@@ -426,7 +427,7 @@ class SolanaHelper(Helper):
         """
         try:
             blockhash = self.BlockhashCache.get()
-            return json.loads(((Hash.from_string(blockhash)).to_json()))
+            # return json.loads(((Hash.from_string(blockhash)).to_json()))
             return blockhash
         except Exception as e:
             result = self._api.get_latest_blockhash()
@@ -434,7 +435,7 @@ class SolanaHelper(Helper):
             blockhash = json.loads(blockhash_json)
             self.BlockhashCache.set(
                 blockhash=blockhash['blockhash'], slot=result.context.slot)
-            return json.loads((Hash.from_string(blockhash['blockhash'])).to_json())
+            # return json.loads((Hash.from_string(blockhash['blockhash'])).to_json())
             return blockhash['blockhash']
 
     @ staticmethod
@@ -571,7 +572,7 @@ class SolanaApi(LedgerApi, SolanaHelper):
         sender_address: Address,
         destination_address: Address,
         amount: int,
-        unfunded_account: bool,
+        unfunded_account: bool = False,
         chain_id: Optional[int] = None,
         raise_on_try: bool = False,
         **kwargs: Any,

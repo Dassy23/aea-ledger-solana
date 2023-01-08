@@ -32,6 +32,9 @@ docker run -d -p 8899:8899 -p 8900:8900 dassy23/solana-test-ledger:latest
 
 ```
 python setup.py install
-twine upload dist/*
+pip install open-aea[all]
+```
 
+```
+twine upload dist/*
 ```
