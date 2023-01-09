@@ -35,7 +35,8 @@ from aea_ledger_solana import (
     LAMPORTS_PER_SOL,
     PublicKey,
     sTransaction,
-    Transaction
+    Transaction,
+    solana
 )
 
 from nacl.signing import VerifyKey
@@ -134,13 +135,8 @@ def _construct_and_settle_tx(
     txObj.recent_blockhash = nonce
     transfer_transaction = json.loads(txObj._solders.to_json())
 
-    if "unfunded_account" in tx_params and tx_params['unfunded_account']:
-        signers = [account2]
-    else:
-        signers = []
-
     signed_transaction = account1.sign_transaction(
-        transfer_transaction, signers
+        transfer_transaction
     )
 
     transaction_digest = solana_api.send_signed_transaction(signed_transaction)
@@ -160,6 +156,48 @@ def _construct_and_settle_tx(
 @pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
 @pytest.mark.integration
 @pytest.mark.ledger
+def test_create_pda(caplog, solana_private_key_file):
+    """Test the balance is zero for a new account."""
+    with caplog.at_level(logging.DEBUG, logger="aea.crypto.solana._default_logger"):
+        solana_api = SolanaApi()
+        sc = SolanaCrypto(solana_private_key_file)
+        resp = _generate_wealth_if_needed(
+            solana_api, sc.address, AIRDROP_AMOUNT)
+        assert resp != "failed", "Failed to generate wealth"
+
+        acc = PublicKey.create_with_seed(
+            sc.public_key, "pda", PublicKey("11111111111111111111111111111111"))
+
+        txn = solana_api.create_pda(
+            from_address=sc.address,
+            new_account_address=acc.to_base58().decode(),
+            base_address=sc.address,
+            seed="pda",
+            lamports=10000000,
+            space=1,
+            program_id="11111111111111111111111111111111"
+        )
+        jsonTx = json.dumps(txn)
+        stxn = sTransaction.from_json(jsonTx)
+        txObj = Transaction.from_solders(stxn)
+        # blockash in string format
+        nonce = solana_api.generate_tx_nonce()
+        txObj.recent_blockhash = nonce
+        txn = json.loads(txObj._solders.to_json())
+
+        signed_transaction = sc.sign_transaction(
+            txn)
+        transaction_digest = solana_api.send_signed_transaction(
+            signed_transaction)
+        assert transaction_digest is not None
+        transaction_receipt, is_settled = _wait_get_receipt(
+            solana_api, transaction_digest)
+        assert is_settled is True
+
+
+@ pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
+@ pytest.mark.integration
+@ pytest.mark.ledger
 def test_get_wealth(caplog, solana_private_key_file):
     """Test the balance is zero for a new account."""
     with caplog.at_level(logging.DEBUG, logger="aea.crypto.solana._default_logger"):
@@ -170,9 +208,9 @@ def test_get_wealth(caplog, solana_private_key_file):
         assert resp != "failed", "Failed to generate wealth"
 
 
-@pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
-@pytest.mark.integration
-@pytest.mark.ledger
+@ pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
+@ pytest.mark.integration
+@ pytest.mark.ledger
 def test_state_from_address(solana_private_key_file):
     """Test the get_address_from_public_key method"""
 
@@ -253,9 +291,9 @@ def test_sign_message():
     assert result == msg, "Failed to sign message"
 
 
-@pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
-@pytest.mark.integration
-@pytest.mark.ledger
+@ pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
+@ pytest.mark.integration
+@ pytest.mark.ledger
 def test_load_contract_interface_from_program_id():
     """Test that you can load contract interface from onchain idl store."""
     solana_api = SolanaApi()
@@ -267,9 +305,9 @@ def test_load_contract_interface_from_program_id():
     assert "name" in contract_interface['idl'], "idl has a name"
 
 
-@pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
-@pytest.mark.integration
-@pytest.mark.ledger
+@ pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
+@ pytest.mark.integration
+@ pytest.mark.ledger
 def test_unfunded_transfer_transaction(solana_private_key_file):
     """Test the construction, signing and submitting of a transfer transaction."""
     account1 = SolanaCrypto(payer_keypair_path)
@@ -285,7 +323,6 @@ def test_unfunded_transfer_transaction(solana_private_key_file):
         "sender_address": account1.address,
         "destination_address": account2.address,
         "amount": AMOUNT,
-        "unfunded_account": True
     }
 
     transaction_digest, transaction_receipt, is_settled = _construct_and_settle_tx(
@@ -346,7 +383,6 @@ def test_funded_transfer_transaction(solana_private_key_file):
         account1,
         account2,
         tx_params,
-
     )
     assert is_settled, "Failed to verify tx!"
 
@@ -387,9 +423,9 @@ def test_get_tx(caplog, solana_private_key_file):
         assert contract_addresses[0] == '11111111111111111111111111111111'
 
 
-@pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
-@pytest.mark.integration
-@pytest.mark.ledger
+@ pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
+@ pytest.mark.integration
+@ pytest.mark.ledger
 def test_encrypt_decrypt_privatekey(caplog, solana_private_key_file):
     """Test the balance is zero for a new account."""
     with caplog.at_level(logging.DEBUG, logger="aea.crypto.solana._default_logger"):
@@ -467,9 +503,9 @@ def test_get_transaction_transfer_logs(solana_private_key_file):
     assert "postBalances" in logs
 
 
-@pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
-@pytest.mark.integration
-@pytest.mark.ledger
+@ pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
+@ pytest.mark.integration
+@ pytest.mark.ledger
 def test_deploy_program():
     """Test the deploy contract method."""
 
@@ -512,9 +548,9 @@ def test_deploy_program():
     assert result is not None, "Should not be none"
 
 
-@pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
-@pytest.mark.integration
-@pytest.mark.ledger
+@ pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
+@ pytest.mark.integration
+@ pytest.mark.ledger
 def test_contract_method_call():
     """Test the deploy contract method."""
 

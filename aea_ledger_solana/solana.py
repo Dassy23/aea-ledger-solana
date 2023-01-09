@@ -49,6 +49,7 @@ from solana.keypair import Keypair
 from solders.signature import Signature
 from solders.transaction import Transaction as sTransaction
 from solders.hash import Hash
+from solders import system_program as ssp
 
 from anchorpy import Idl
 from cryptography.fernet import Fernet
@@ -63,13 +64,12 @@ from anchorpy.coder.accounts import ACCOUNT_DISCRIMINATOR_SIZE
 from solana.system_program import TransferParams, transfer
 from solana.transaction import Transaction, TransactionInstruction, AccountMeta
 from solana.system_program import create_account, SYS_PROGRAM_ID
-from solana.system_program import CreateAccountParams
-import asyncio
+from solana.system_program import CreateAccountParams, CreateAccountWithSeedParams
 from spl.token.core import _TokenCore as TokenCore
 
 _default_logger = logging.getLogger(__name__)
 
-_VERSION = "1.24.5"
+_VERSION = "1.24.6"
 _SOLANA = "solana"
 TESTNET_NAME = "n/a"
 DEFAULT_ADDRESS = "https://api.devnet.solana.com"
@@ -572,7 +572,6 @@ class SolanaApi(LedgerApi, SolanaHelper):
         sender_address: Address,
         destination_address: Address,
         amount: int,
-        unfunded_account: bool = False,
         chain_id: Optional[int] = None,
         raise_on_try: bool = False,
         **kwargs: Any,
@@ -590,25 +589,37 @@ class SolanaApi(LedgerApi, SolanaHelper):
         """
         chain_id = chain_id if chain_id is not None else self._chain_id
 
-        if unfunded_account:
-            destination_balance = self.get_balance(destination_address)
-            if destination_balance != 0:
-                raise Exception("Account is already funded")
-
-        if unfunded_account and amount > RENT_EXEMPT_AMOUNT:
-            params = CreateAccountParams(
-                from_pubkey=PublicKey(sender_address),
-                new_account_pubkey=PublicKey(destination_address),
-                lamports=RENT_EXEMPT_AMOUNT,
-                space=1,
-                program_id=SYS_PROGRAM_ID
+        state = self.get_state(destination_address)
+        if state is None:
+            seed = "seed"
+            acc = PublicKey.create_with_seed(
+                PublicKey(sender_address), seed, PublicKey("11111111111111111111111111111111"))
+            params = CreateAccountWithSeedParams(
+                PublicKey(sender_address),
+                acc,
+                PublicKey(sender_address),
+                seed,
+                amount,
+                0,
+                PublicKey("11111111111111111111111111111111")
             )
-            createAccountInstruction = create_account(params)
-            txn = Transaction(fee_payer=PublicKey(sender_address)).add(createAccountInstruction).add(transfer(TransferParams(
-                from_pubkey=PublicKey(sender_address), to_pubkey=PublicKey(destination_address), lamports=amount-RENT_EXEMPT_AMOUNT)))
+            ix_create_pda = TransactionInstruction.from_solders(
+                ssp.create_account_with_seed(params.to_solders()))
 
-        elif unfunded_account and amount < RENT_EXEMPT_AMOUNT:
-            raise Exception("Not enough funds sent to initialize account")
+            params = ssp.TransferWithSeedParams(
+                from_pubkey=acc.to_solders(),
+                from_base=PublicKey(sender_address).to_solders(),
+                from_seed=seed,
+                from_owner=PublicKey(
+                    "11111111111111111111111111111111").to_solders(),
+                to_pubkey=PublicKey(destination_address).to_solders(),
+                lamports=amount,
+            )
+            ix_transfer = TransactionInstruction.from_solders(
+                ssp.transfer_with_seed(params))
+
+            txn = Transaction(fee_payer=PublicKey(
+                sender_address)).add(ix_create_pda).add(ix_transfer)
         else:
             txn = Transaction(fee_payer=sender_address).add(transfer(TransferParams(
                 from_pubkey=PublicKey(sender_address), to_pubkey=PublicKey(destination_address), lamports=amount)))
@@ -734,7 +745,7 @@ class SolanaApi(LedgerApi, SolanaHelper):
         # pylint: disable=no-member
         return json.loads(tx.value.to_json())
 
-    def create_default_account(self, from_pubkey: PublicKey, new_account_pubkey: PublicKey, lamports: int, space: int, program_id: Optional[PublicKey] = SYS_PROGRAM_ID):
+    def create_default_account(self, from_address: str, new_account_address: str, lamports: int, space: int, program_id: Optional[str] = SYS_PROGRAM_ID):
         """
         Build a create account transaction.
 
@@ -746,15 +757,49 @@ class SolanaApi(LedgerApi, SolanaHelper):
         :return: the tx, if present
         """
         params = CreateAccountParams(
-            from_pubkey,
-            new_account_pubkey,
+            PublicKey(from_address),
+            PublicKey(new_account_address),
             lamports,
             space,
-            program_id
+            PublicKey(program_id)
         )
         createAccountInstruction = create_account(params)
-        txn = Transaction(fee_payer=from_pubkey).add(
+        txn = Transaction(fee_payer=from_address).add(
             createAccountInstruction)
+        tx = txn._solders.to_json()
+        return json.loads(tx)
+
+    def create_pda(self,
+                   from_address: str,
+                   new_account_address: str,
+                   base_address: str,
+                   seed: str,
+                   lamports: int,
+                   space: int,
+                   program_id: str):
+        """
+        Build a create pda transaction.
+
+        :param from_pubkey: the sender public key
+        :param new_account_pubkey: the new account public key
+        :param lamports: the amount of lamports to send
+        :param space: the space to allocate
+        :param program_id: the program id
+        :return: the tx, if present
+        """
+        params = CreateAccountWithSeedParams(
+            PublicKey(from_address),
+            PublicKey(new_account_address),
+            PublicKey(base_address),
+            seed,
+            lamports,
+            space,
+            PublicKey(program_id)
+        )
+        createPDAInstruction = TransactionInstruction.from_solders(
+            ssp.create_account_with_seed(params.to_solders()))
+        txn = Transaction().add(
+            createPDAInstruction)
         tx = txn._solders.to_json()
         return json.loads(tx)
 
