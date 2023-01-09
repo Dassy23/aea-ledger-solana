@@ -69,7 +69,7 @@ from spl.token.core import _TokenCore as TokenCore
 
 _default_logger = logging.getLogger(__name__)
 
-_VERSION = "1.24.6"
+_VERSION = "1.24.7"
 _SOLANA = "solana"
 TESTNET_NAME = "n/a"
 DEFAULT_ADDRESS = "https://api.devnet.solana.com"
@@ -437,6 +437,21 @@ class SolanaHelper(Helper):
                 blockhash=blockhash['blockhash'], slot=result.context.slot)
             # return json.loads((Hash.from_string(blockhash['blockhash'])).to_json())
             return blockhash['blockhash']
+
+    def add_nonce(self, tx: dict) -> JSONLike:
+        """
+        Check whether a transaction is valid or not.
+
+        :param tx: the transaction.
+        :return: True if the random_message is equals to tx['input']
+        """
+        jsonTx = json.dumps(tx)
+        stxn = sTransaction.from_json(jsonTx)
+        txObj = Transaction.from_solders(stxn)
+        # blockash in string format
+        nonce = self.generate_tx_nonce()
+        txObj.recent_blockhash = nonce
+        return json.loads(txObj._solders.to_json())
 
     @ staticmethod
     def get_contract_address(tx_receipt: JSONLike) -> Optional[list[str]]:

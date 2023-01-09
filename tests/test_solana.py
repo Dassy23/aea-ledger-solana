@@ -127,13 +127,7 @@ def _construct_and_settle_tx(
     """Construct and settle a transaction."""
     transfer_transaction = solana_api.get_transfer_transaction(**tx_params)
     # add nonce
-    jsonTx = json.dumps(transfer_transaction)
-    stxn = sTransaction.from_json(jsonTx)
-    txObj = Transaction.from_solders(stxn)
-    # blockash in string format
-    nonce = solana_api.generate_tx_nonce()
-    txObj.recent_blockhash = nonce
-    transfer_transaction = json.loads(txObj._solders.to_json())
+    transfer_transaction = solana_api.add_nonce(transfer_transaction)
 
     signed_transaction = account1.sign_transaction(
         transfer_transaction
@@ -177,13 +171,7 @@ def test_create_pda(caplog, solana_private_key_file):
             space=1,
             program_id="11111111111111111111111111111111"
         )
-        jsonTx = json.dumps(txn)
-        stxn = sTransaction.from_json(jsonTx)
-        txObj = Transaction.from_solders(stxn)
-        # blockash in string format
-        nonce = solana_api.generate_tx_nonce()
-        txObj.recent_blockhash = nonce
-        txn = json.loads(txObj._solders.to_json())
+        txn = solana_api.add_nonce(txn)
 
         signed_transaction = sc.sign_transaction(
             txn)
@@ -604,12 +592,8 @@ def test_contract_method_call():
         "accounts": accounts
     }, tx_args=None)
 
-    jsonTx = json.dumps(tx)
-    stxn = sTransaction.from_json(jsonTx)
-    txObj = Transaction.from_solders(stxn)
-    nonce = sa.generate_tx_nonce()
-    txObj.recent_blockhash = nonce
-    tx = json.loads(txObj._solders.to_json())
+    tx = sa.add_nonce(tx)
+
     time.sleep(2)
     signed_transaction = game.sign_transaction(
         tx, [payer])
@@ -648,13 +632,7 @@ def test_contract_method_call():
                                    },
                                    tx_args=None)
 
-        jsonTx = json.dumps(tx1)
-        stxn = sTransaction.from_json(jsonTx)
-        txObj = Transaction.from_solders(stxn)
-        # blockash in string format
-        nonce = sa.generate_tx_nonce()
-        txObj.recent_blockhash = nonce
-        tx1 = json.loads(txObj._solders.to_json())
+        tx1 = sa.add_nonce(tx1)
 
         signed_transaction = active_player.sign_transaction(
             tx1, )
