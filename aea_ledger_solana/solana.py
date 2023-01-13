@@ -69,7 +69,7 @@ from spl.token.core import _TokenCore as TokenCore
 
 _default_logger = logging.getLogger(__name__)
 
-_VERSION = "1.24.7"
+_VERSION = "1.24.8"
 _SOLANA = "solana"
 TESTNET_NAME = "n/a"
 DEFAULT_ADDRESS = "https://api.devnet.solana.com"
@@ -350,16 +350,8 @@ class SolanaHelper(Helper):
         :param tx: the transaction.
         :return: True if the random_message is equals to tx['input']
         """
-        is_valid = False
-        if tx is not None:
-            # is_valid = (
-            #     tx.get("input") == tx_nonce
-            #     and tx.get("value") == amount
-            #     and tx.get("from") == client
-            #     and tx.get("to") == seller
-            # )
-            is_valid = True
-        return is_valid
+
+        return True
 
     @ staticmethod
     def is_transaction_settled(tx_receipt: JSONLike) -> bool:
@@ -401,7 +393,7 @@ class SolanaHelper(Helper):
         :return: the recovered addresses
         """
 
-        return "TOBEIMPLEMENTED"
+        return NotImplementedError
 
     @ classmethod
     def recover_public_keys_from_message(
@@ -417,7 +409,7 @@ class SolanaHelper(Helper):
         :return: the recovered public keys
         """
 
-        return "TOBEIMPLEMENTED"
+        return NotImplementedError
 
     def generate_tx_nonce(self) -> str:
         """
@@ -861,7 +853,7 @@ class SolanaApi(LedgerApi, SolanaHelper):
         :param kwargs: keyword arguments
         :return: the transaction dictionary.
         """
-
+        return NotImplementedError
         if contract_interface["bytecode"] is None or contract_interface["program_keypair"] is None:
             raise ValueError("Bytecode or program_keypair is required")
 
@@ -918,7 +910,7 @@ class SolanaApi(LedgerApi, SolanaHelper):
         :return: the call result
         """
 
-        return {}
+        return NotImplementedError
 
     def build_transaction(  # pylint: disable=too-many-arguments
         self,
