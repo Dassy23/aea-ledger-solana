@@ -351,7 +351,7 @@ class SolanaHelper(Helper):
         :return: True if the random_message is equals to tx['input']
         """
 
-        return True
+        return NotImplementedError
 
     @ staticmethod
     def is_transaction_settled(tx_receipt: JSONLike) -> bool:
@@ -690,6 +690,7 @@ class SolanaApi(LedgerApi, SolanaHelper):
         :param raise_on_try: whether the method will raise or log on error
         :return: the tx receipt, if present
         """
+        print(tx_digest)
         tx_receipt = self._try_get_transaction_receipt(
             tx_digest,
             raise_on_try=raise_on_try,
