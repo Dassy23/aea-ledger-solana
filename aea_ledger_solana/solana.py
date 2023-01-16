@@ -69,7 +69,7 @@ from spl.token.core import _TokenCore as TokenCore
 
 _default_logger = logging.getLogger(__name__)
 
-_VERSION = "1.24.8"
+_VERSION = "1.24.9"
 _SOLANA = "solana"
 TESTNET_NAME = "n/a"
 DEFAULT_ADDRESS = "https://api.devnet.solana.com"
@@ -937,7 +937,7 @@ class SolanaApi(LedgerApi, SolanaHelper):
 
         data = method_args['data']
         accounts = method_args['accounts']
-        txn = contract_instance.transaction[method_name](data, ctx=Context(
+        txn = contract_instance.transaction[method_name](*data, ctx=Context(
             accounts=accounts))
         tx = txn._solders.to_json()
         return json.loads(tx)

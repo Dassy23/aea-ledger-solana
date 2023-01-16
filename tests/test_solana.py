@@ -588,7 +588,7 @@ def test_contract_method_call():
         "system_program": PublicKey("11111111111111111111111111111111")}
 
     tx = sa.build_transaction(program, "setup_game", method_args={
-        "data": player2.public_key,
+        "data": (player2.public_key,),
         "accounts": accounts
     }, tx_args=None)
 
@@ -627,7 +627,7 @@ def test_contract_method_call():
 
         tx1 = sa.build_transaction(program, "play",
                                    method_args={
-                                       "data": tile,
+                                       "data": (tile,),
                                        "accounts": accounts
                                    },
                                    tx_args=None)
