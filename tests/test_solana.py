@@ -589,7 +589,7 @@ def test_contract_method_call():
 
     tx = sa.build_transaction(program, "setup_game", method_args={
         "data": (player2.public_key,),
-        "accounts": accounts
+        "accounts": accounts,
     }, tx_args=None)
 
     tx = sa.add_nonce(tx)
@@ -628,7 +628,9 @@ def test_contract_method_call():
         tx1 = sa.build_transaction(program, "play",
                                    method_args={
                                        "data": (tile,),
-                                       "accounts": accounts
+                                       "accounts": accounts,
+
+
                                    },
                                    tx_args=None)
 

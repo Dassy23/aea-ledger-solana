@@ -69,7 +69,7 @@ from spl.token.core import _TokenCore as TokenCore
 
 _default_logger = logging.getLogger(__name__)
 
-_VERSION = "1.24.10"
+_VERSION = "1.24.11"
 _SOLANA = "solana"
 TESTNET_NAME = "n/a"
 DEFAULT_ADDRESS = "https://api.devnet.solana.com"
@@ -945,11 +945,16 @@ class SolanaApi(LedgerApi, SolanaHelper):
             raise ValueError("Data is required")
         if method_args['accounts'] is None:
             raise ValueError("Accounts are required")
+        if "remaining_accounts" not in method_args:
+            method_args['remaining_accounts'] = None
 
         data = method_args['data']
         accounts = method_args['accounts']
+        remaining_accounts = method_args['remaining_accounts']
+
         txn = contract_instance.transaction[method_name](*data, ctx=Context(
-            accounts=accounts))
+            accounts=accounts,
+            remaining_accounts=remaining_accounts))
         tx = txn._solders.to_json()
         return json.loads(tx)
         # return txn
