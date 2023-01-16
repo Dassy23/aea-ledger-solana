@@ -445,6 +445,17 @@ class SolanaHelper(Helper):
         txObj.recent_blockhash = nonce
         return json.loads(txObj._solders.to_json())
 
+    def to_transaction_format(self, tx: dict) -> JSONLike:
+        """
+        Check whether a transaction is valid or not.
+
+        :param tx: the transaction.
+        :return: True if the random_message is equals to tx['input']
+        """
+        jsonTx = json.dumps(tx)
+        stxn = sTransaction.from_json(jsonTx)
+        return Transaction.from_solders(stxn)
+
     @ staticmethod
     def get_contract_address(tx_receipt: JSONLike) -> Optional[list[str]]:
         """
