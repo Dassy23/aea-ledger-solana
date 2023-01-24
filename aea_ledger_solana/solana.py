@@ -24,6 +24,7 @@ import hashlib
 import base64
 import base58
 import struct
+from struct import pack_into
 import array
 import subprocess
 import tempfile
@@ -50,6 +51,8 @@ from solders.signature import Signature
 from solders.transaction import Transaction as sTransaction
 from solders.hash import Hash
 from solders import system_program as ssp
+from pythclient.pythaccounts import PythPriceInfo
+
 
 from anchorpy import Idl
 from cryptography.fernet import Fernet
@@ -69,7 +72,7 @@ from spl.token.core import _TokenCore as TokenCore
 
 _default_logger = logging.getLogger(__name__)
 
-_VERSION = "1.24.11"
+_VERSION = "1.24.13"
 _SOLANA = "solana"
 TESTNET_NAME = "n/a"
 DEFAULT_ADDRESS = "https://api.devnet.solana.com"
@@ -455,6 +458,37 @@ class SolanaHelper(Helper):
         jsonTx = json.dumps(tx)
         stxn = sTransaction.from_json(jsonTx)
         return Transaction.from_solders(stxn)
+
+    def to_dict_format(self, tx) -> JSONLike:
+        """
+        Check whether a transaction is valid or not.
+
+        :param tx: the transaction.
+        :return: True if the random_message is equals to tx['input']
+        """
+
+        return json.loads(tx._solders.to_json())
+
+    def add_increase_compute_ix(self, tx, compute: int) -> JSONLike:
+        """
+        Check whether a transaction is valid or not.
+
+        :param tx: the transaction.
+        :return: True if the random_message is equals to tx['input']
+        """
+        program_id = PublicKey("ComputeBudget111111111111111111111111111111")
+
+        name_bytes = bytearray(1 + 4 + 4)
+        pack_into("B", name_bytes, 0, 0)
+        pack_into("I", name_bytes, 1, compute)
+        pack_into("I", name_bytes, 5, 0)
+        data = bytes(name_bytes)
+
+        compute_ix = TransactionInstruction([], program_id, data)
+        tx = self.to_transaction_format(tx)
+        tx.add(compute_ix)
+
+        return self.to_dict_format(tx)
 
     @ staticmethod
     def get_contract_address(tx_receipt: JSONLike) -> Optional[list[str]]:
