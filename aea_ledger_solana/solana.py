@@ -72,12 +72,12 @@ from spl.token.core import _TokenCore as TokenCore
 
 _default_logger = logging.getLogger(__name__)
 
-_VERSION = "1.24.13"
+_VERSION = "1.24.16"
 _SOLANA = "solana"
 TESTNET_NAME = "n/a"
 DEFAULT_ADDRESS = "https://api.devnet.solana.com"
-# DEFAULT_ADDRESS = "http://localhost:8899"
-DEFAULT_CHAIN_ID = "solana"
+# DEFAULT_ADDRESS = "https://api.mainnet-beta.solana.com"
+DEFAULT_CHAIN_ID = 101
 DEFAULT_CURRENCY_DENOM = "lamports"
 RENT_EXEMPT_AMOUNT = 1000000
 
@@ -735,7 +735,6 @@ class SolanaApi(LedgerApi, SolanaHelper):
         :param raise_on_try: whether the method will raise or log on error
         :return: the tx receipt, if present
         """
-        print(tx_digest)
         tx_receipt = self._try_get_transaction_receipt(
             tx_digest,
             raise_on_try=raise_on_try,
@@ -791,10 +790,8 @@ class SolanaApi(LedgerApi, SolanaHelper):
             `raise_on_try`: bool flag specifying whether the method will raise or log on error (used by `try_decorator`)
         :return: the tx, if found
         """
-        try:
-            tx = self._api.get_transaction(Signature.from_string(tx_digest))
-        except Exception as e:
-            print(e)
+        tx = self._api.get_transaction(Signature.from_string(tx_digest))
+
         # pylint: disable=no-member
         return json.loads(tx.value.to_json())
 
@@ -900,45 +897,45 @@ class SolanaApi(LedgerApi, SolanaHelper):
         :return: the transaction dictionary.
         """
         return NotImplementedError
-        if contract_interface["bytecode"] is None or contract_interface["program_keypair"] is None:
-            raise ValueError("Bytecode or program_keypair is required")
+        # if contract_interface["bytecode"] is None or contract_interface["program_keypair"] is None:
+        #     raise ValueError("Bytecode or program_keypair is required")
 
-        # check if solana cli is installed
-        result = subprocess.run(
-            ["solana --version"], capture_output=True, text=True, shell=True)
-        if result.stderr != "":
-            raise ValueError(result.stderr)
+        # # check if solana cli is installed
+        # result = subprocess.run(
+        #     ["solana --version"], capture_output=True, text=True, shell=True)
+        # if result.stderr != "":
+        #     raise ValueError(result.stderr)
 
-        # save keys in uint8 array temp
-        value = struct.unpack('64B', payer_keypair.entity.secret_key)
-        uint8_array = array.array('B', value)
-        payer_uint8 = uint8_array.tolist()
-        temp_dir_payer = Path(tempfile.mkdtemp())
-        temp_file_payer = temp_dir_payer / "payer.json"
-        temp_file_payer.write_text(str(payer_uint8))
+        # # save keys in uint8 array temp
+        # value = struct.unpack('64B', payer_keypair.entity.secret_key)
+        # uint8_array = array.array('B', value)
+        # payer_uint8 = uint8_array.tolist()
+        # temp_dir_payer = Path(tempfile.mkdtemp())
+        # temp_file_payer = temp_dir_payer / "payer.json"
+        # temp_file_payer.write_text(str(payer_uint8))
 
-        value = struct.unpack(
-            '64B', contract_interface["program_keypair"].entity.secret_key)
-        uint8_array = array.array('B', value)
-        program_uint8 = uint8_array.tolist()
-        temp_dir_program = Path(tempfile.mkdtemp())
-        temp_file_program = temp_dir_program / "program.json"
-        temp_file_program.write_text(str(program_uint8))
+        # value = struct.unpack(
+        #     '64B', contract_interface["program_keypair"].entity.secret_key)
+        # uint8_array = array.array('B', value)
+        # program_uint8 = uint8_array.tolist()
+        # temp_dir_program = Path(tempfile.mkdtemp())
+        # temp_file_program = temp_dir_program / "program.json"
+        # temp_file_program.write_text(str(program_uint8))
 
-        t = SolanaCrypto(temp_file_payer)
-        temp_dir_bytecode = Path(tempfile.mkdtemp())
-        temp_file_bytecode = temp_dir_bytecode / "bytecode.so"
-        temp_file_bytecode.write_bytes(contract_interface["bytecode"])
+        # t = SolanaCrypto(temp_file_payer)
+        # temp_dir_bytecode = Path(tempfile.mkdtemp())
+        # temp_file_bytecode = temp_dir_bytecode / "bytecode.so"
+        # temp_file_bytecode.write_bytes(contract_interface["bytecode"])
 
-        cmd = f'''solana program deploy --url {DEFAULT_ADDRESS} -v --keypair {str(temp_file_payer)} --program-id {str(temp_file_program)} {str(temp_file_bytecode)}'''
+        # cmd = f'''solana program deploy --url {DEFAULT_ADDRESS} -v --keypair {str(temp_file_payer)} --program-id {str(temp_file_program)} {str(temp_file_bytecode)}'''
 
-        result = subprocess.run(
-            [cmd], capture_output=True, text=True, shell=True)
+        # result = subprocess.run(
+        #     [cmd], capture_output=True, text=True, shell=True)
 
-        if result.stderr != "":
-            raise ValueError(result.stderr)
+        # if result.stderr != "":
+        #     raise ValueError(result.stderr)
 
-        return result.stdout
+        # return result.stdout
 
     @ classmethod
     def contract_method_call(
@@ -991,7 +988,6 @@ class SolanaApi(LedgerApi, SolanaHelper):
             remaining_accounts=remaining_accounts))
         tx = txn._solders.to_json()
         return json.loads(tx)
-        # return txn
 
     def get_transaction_transfer_logs(  # pylint: disable=too-many-arguments,too-many-locals
         self,
@@ -1073,18 +1069,14 @@ class SolanaFaucetApi(FaucetApi):
             url = DEFAULT_ADDRESS
 
         if amount is None:
-            amount = LAMPORTS_PER_SOL*1
+            amount = LAMPORTS_PER_SOL*0.5
         else:
             amount = LAMPORTS_PER_SOL*amount
 
         solana_client = Client(url, commitment='confirmed')
-        response = None
-        try:
-            resp = solana_client.request_airdrop(
-                PublicKey(address), amount)
-        except Exception as e:
-            _default_logger.error(
-                "Response: {} , e: {}".format("airdrop failed", e))
+        resp = solana_client.request_airdrop(
+            PublicKey(address), amount)
+
         response = (json.loads(resp.to_json()))
         if 'message' in response:
             _default_logger.error(

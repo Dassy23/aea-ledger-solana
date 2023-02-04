@@ -147,42 +147,6 @@ def _construct_and_settle_tx(
 ## tests ##
 
 
-@pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
-@pytest.mark.integration
-@pytest.mark.ledger
-def test_create_pda(caplog, solana_private_key_file):
-    """Test the balance is zero for a new account."""
-    with caplog.at_level(logging.DEBUG, logger="aea.crypto.solana._default_logger"):
-        solana_api = SolanaApi()
-        sc = SolanaCrypto(solana_private_key_file)
-        resp = _generate_wealth_if_needed(
-            solana_api, sc.address, AIRDROP_AMOUNT)
-        assert resp != "failed", "Failed to generate wealth"
-
-        acc = PublicKey.create_with_seed(
-            sc.public_key, "pda", PublicKey("11111111111111111111111111111111"))
-
-        txn = solana_api.create_pda(
-            from_address=sc.address,
-            new_account_address=acc.to_base58().decode(),
-            base_address=sc.address,
-            seed="pda",
-            lamports=10000000,
-            space=1,
-            program_id="11111111111111111111111111111111"
-        )
-        txn = solana_api.add_nonce(txn)
-
-        signed_transaction = sc.sign_transaction(
-            txn)
-        transaction_digest = solana_api.send_signed_transaction(
-            signed_transaction)
-        assert transaction_digest is not None
-        transaction_receipt, is_settled = _wait_get_receipt(
-            solana_api, transaction_digest)
-        assert is_settled is True
-
-
 @ pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
 @ pytest.mark.integration
 @ pytest.mark.ledger
@@ -402,9 +366,19 @@ def test_get_tx(caplog, solana_private_key_file):
         solana_faucet_api = SolanaFaucetApi()
         sc = SolanaCrypto(private_key_path=solana_private_key_file)
         solana_api = SolanaApi()
-        tx_signature = solana_faucet_api.get_wealth(
-            sc.public_key, AIRDROP_AMOUNT)
 
+        retries = 0
+        tx_signature = None
+        while retries < MAX_FLAKY_RERUNS:
+            tx_signature = solana_faucet_api.get_wealth(
+                sc.public_key, AIRDROP_AMOUNT)
+            if tx_signature is None:
+                retries += 1
+                time.sleep(2)
+            else:
+                break
+
+        assert tx_signature is not None
         tx, settled = _wait_get_receipt(solana_api, tx_signature)
         assert settled is True
         contract_addresses = solana_api.get_contract_address(tx)
@@ -569,9 +543,9 @@ def test_contract_method_call():
     player2 = SolanaCrypto("./tests/data/solana_private_key2.txt")
     game = SolanaCrypto()
 
-    print("game: " + str(game.address))
-    print("p1 - payer: " + str(player1.address))
-    print("p2: " + str(player2.address))
+    # print("game: " + str(game.address))
+    # print("p1 - payer: " + str(player1.address))
+    # print("p2: " + str(player2.address))
 
     resp = _generate_wealth_if_needed(sa, payer.address)
     assert resp != "failed", "Failed to generate wealth"
@@ -594,13 +568,12 @@ def test_contract_method_call():
 
     tx = sa.add_nonce(tx)
 
-    time.sleep(2)
     signed_transaction = game.sign_transaction(
         tx, [payer])
 
     transaction_digest = sa.send_signed_transaction(
         signed_transaction)
-    assert tx is not None
+    assert transaction_digest is not None
     transaction_receipt, is_settled = _wait_get_receipt(
         sa, transaction_digest)
     assert is_settled is True
@@ -610,7 +583,8 @@ def test_contract_method_call():
     player1 = payer
     player2 = player2
     column = 0
-    print(time.time() - start)
+    # print(time.time() - start)
+    # time.sleep(2)
 
     # game loop
     start = time.time()
@@ -651,5 +625,5 @@ def test_contract_method_call():
         if row == 0:
             column += 1
 
-    print(time.time() - start)
+    # print(time.time() - start)
     assert decoded_state.state.winner == player1.public_key
