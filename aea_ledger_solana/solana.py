@@ -72,11 +72,10 @@ from spl.token.core import _TokenCore as TokenCore
 
 _default_logger = logging.getLogger(__name__)
 
-_VERSION = "1.24.16"
+_VERSION = "1.24.17"
 _SOLANA = "solana"
 TESTNET_NAME = "n/a"
 DEFAULT_ADDRESS = "https://api.devnet.solana.com"
-# DEFAULT_ADDRESS = "https://api.mainnet-beta.solana.com"
 DEFAULT_CHAIN_ID = 101
 DEFAULT_CURRENCY_DENOM = "lamports"
 RENT_EXEMPT_AMOUNT = 1000000
@@ -414,6 +413,7 @@ class SolanaHelper(Helper):
 
         return NotImplementedError
 
+    @ try_decorator("Unable to get nonce: {}", logger_method="warning")
     def generate_tx_nonce(self) -> str:
         """
         Fetch a latest blockhash to distinguish transactions with the same terms.
