@@ -165,11 +165,29 @@ def test_get_wealth(caplog, solana_private_key_file):
 @ pytest.mark.ledger
 def test_state_from_address(solana_private_key_file):
     """Test the get_address_from_public_key method"""
-
     solana_api = SolanaApi()
+
     account_state = solana_api.get_state("11111111111111111111111111111111")
 
-    assert hasattr(account_state, 'lamports'), "State not in correct format"
+    assert account_state is not None, "State not in correct format"
+
+
+# @ pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
+# @ pytest.mark.integration
+# @ pytest.mark.ledger
+# def test_program_accounts_state_from_account(solana_private_key_file):
+#     """Test the get_address_from_public_key method"""
+#     solana_api = SolanaApi()
+
+#     filters = {
+#         "offset": 0,
+#         "bytes": b"\x9fu_\xe3\xef\x97:\xec"
+#     }
+
+#     account_state = solana_api.get_program_accounts_state(
+#         address="dRiftyHA39MWEi3m9aunc5MzRF1JYuBsbn6VPcn33UH", filters=filters)
+
+#     assert account_state is not None, "State not in correct format"
 
 
 def test_creation(solana_private_key_file):

@@ -45,6 +45,7 @@ from aea.helpers.io import open_file
 
 from solana.publickey import PublicKey
 from solana.rpc.api import Client
+from solana.rpc.types import MemcmpOpts
 from solana.blockhash import Blockhash, BlockhashCache
 from solana.keypair import Keypair
 from solders.signature import Signature
@@ -72,10 +73,11 @@ from spl.token.core import _TokenCore as TokenCore
 
 _default_logger = logging.getLogger(__name__)
 
-_VERSION = "1.24.17"
+_VERSION = "1.24.21"
 _SOLANA = "solana"
 TESTNET_NAME = "n/a"
 DEFAULT_ADDRESS = "https://api.devnet.solana.com"
+# DEFAULT_ADDRESS = "http://rpcs.vybenetwork.com/"
 DEFAULT_CHAIN_ID = 101
 DEFAULT_CURRENCY_DENOM = "lamports"
 RENT_EXEMPT_AMOUNT = 1000000
@@ -413,7 +415,6 @@ class SolanaHelper(Helper):
 
         return NotImplementedError
 
-    @ try_decorator("Unable to get nonce: {}", logger_method="warning")
     def generate_tx_nonce(self) -> str:
         """
         Fetch a latest blockhash to distinguish transactions with the same terms.
@@ -425,13 +426,17 @@ class SolanaHelper(Helper):
             # return json.loads(((Hash.from_string(blockhash)).to_json()))
             return blockhash
         except Exception as e:
-            result = self._api.get_latest_blockhash()
-            blockhash_json = result.value.to_json()
-            blockhash = json.loads(blockhash_json)
+            result = self._try_generate_tx_nonce()
+            blockhash_json = json.loads(result.value.to_json())
             self.BlockhashCache.set(
-                blockhash=blockhash['blockhash'], slot=result.context.slot)
+                blockhash=blockhash_json['blockhash'], slot=result.context.slot)
             # return json.loads((Hash.from_string(blockhash['blockhash'])).to_json())
-            return blockhash['blockhash']
+            return blockhash_json['blockhash']
+
+    @ try_decorator("Unable to retrieve nonce/blockhash: {}", logger_method="warning")
+    def _try_generate_tx_nonce(self, **_kwargs: Any) -> dict:
+        """Get the balance of a given account."""
+        return self._api.get_latest_blockhash()
 
     def add_nonce(self, tx: dict) -> JSONLike:
         """
@@ -555,11 +560,6 @@ class SolanaApi(LedgerApi, SolanaHelper):
         )
 
         self.BlockhashCache = BlockhashCache(ttl=10)
-        result = self._api.get_latest_blockhash()
-        blockhash_json = result.value.to_json()
-        blockhash = json.loads(blockhash_json)
-        hash = blockhash['blockhash']
-        self.BlockhashCache.set(blockhash=hash, slot=result.context.slot)
 
         self._chain_id = kwargs.pop("chain_id", DEFAULT_CHAIN_ID)
         self._version = _VERSION
@@ -578,7 +578,7 @@ class SolanaApi(LedgerApi, SolanaHelper):
         :return: the updated transaction
         """
 
-        return transaction
+        return NotImplementedError
 
     def get_balance(
         self, address: Address, raise_on_try: bool = False
@@ -616,6 +616,44 @@ class SolanaApi(LedgerApi, SolanaHelper):
 
         account_object = self._api.get_account_info_json_parsed(
             PublicKey(address))
+        account_info_val = account_object.value
+        return account_info_val
+
+    def get_program_accounts_state(
+        self, address: str, filters: dict = None, *args: Any, raise_on_try: bool = False, **kwargs: Any
+    ) -> Optional[JSONLike]:
+        """Call a specified function on the ledger API."""
+        response = self._try_get_program_accounts_state(
+            address, filters, *args, raise_on_try=raise_on_try, **kwargs
+        )
+        return response
+
+    @ try_decorator("Unable to get state: {}", logger_method="warning")
+    def _try_get_program_accounts_state(  # pylint: disable=unused-argument
+        self, address: str, filters: dict, *args: Any, **kwargs: Any
+    ) -> Optional[JSONLike]:
+        """Try to call a function on the ledger API."""
+
+        if "raise_on_try" in kwargs:
+            logging.info(
+                f"popping `raise_on_try` from {self.__class__.__name__}.get_program_accounts kwargs"
+            )
+            kwargs.pop("raise_on_try")
+        req_filters = []
+        if filters:
+            if not all(key in filters for key in ['offset', 'bytes']):
+                raise ValueError(
+                    "Filters must contain 'offset' and 'bytes' fields.")
+            descrim = base58.b58encode(filters["bytes"]).decode()
+            memcmp_opts = MemcmpOpts(
+                offset=filters["offset"], bytes=descrim)
+            req_filters = [memcmp_opts]
+
+            account_object = self._api.get_program_accounts(
+                pubkey=PublicKey(address), filters=req_filters)
+        else:
+            account_object = self._api.get_program_accounts(
+                pubkey=PublicKey(address))
         account_info_val = account_object.value
         return account_info_val
 
