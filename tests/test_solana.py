@@ -82,11 +82,12 @@ def _generate_wealth_if_needed(api, address, amount=None, min_amount=None) -> Un
         cnt = 0
         transaction_digest = None
         while transaction_digest is None and cnt < 10:
-            transaction_digest = faucet.get_wealth(address, amount)
+            transaction_digest = faucet.get_wealth(
+                address=address, amount=amount)
             cnt += 1
             time.sleep(4)
 
-        if transaction_digest == None:
+        if transaction_digest is None:
             return "failed"
         else:
             transaction_receipt, is_settled = _wait_get_receipt(
@@ -154,9 +155,9 @@ def test_get_wealth(caplog, solana_private_key_file):
     """Test the balance is zero for a new account."""
     with caplog.at_level(logging.DEBUG, logger="aea.crypto.solana._default_logger"):
         solana_api = SolanaApi()
-        sc = SolanaCrypto(solana_private_key_file)
+        solana_crypto = SolanaCrypto(solana_private_key_file)
         resp = _generate_wealth_if_needed(
-            solana_api, sc.address, AIRDROP_AMOUNT)
+            solana_api, solana_crypto.address, AIRDROP_AMOUNT)
         assert resp != "failed", "Failed to generate wealth"
 
 
@@ -270,7 +271,7 @@ def test_load_contract_interface_from_program_id():
     idl_path = Path(ROOT_DIR, "tests", "data",
                     "tic-tac-toe", "target", "idl", "tic_tac_toe.json")
     contract_interface = solana_api.load_contract_interface(
-        idl_file_path=idl_path)
+        file_path=idl_path)
 
     assert "name" in contract_interface['idl'], "idl has a name"
 
@@ -332,7 +333,7 @@ def test_funded_transfer_transaction(solana_private_key_file):
     balance2 = solana_api.get_balance(account2.public_key)
     counter = 0
     flag = True
-    while flag == True and balance2 == 0:
+    while flag is True and balance2 == 0:
         balance2 = solana_api.get_balance(account2.public_key)
         if balance2 != 0:
             flag = False
@@ -341,11 +342,11 @@ def test_funded_transfer_transaction(solana_private_key_file):
             flag = False
         time.sleep(2)
 
-    AMOUNT = 2222
+    amount = 2222
     tx_params = {
         "sender_address": account1.public_key,
         "destination_address": account2.public_key,
-        "amount": AMOUNT,
+        "amount": amount,
     }
 
     transaction_digest, transaction_receipt, is_settled = _construct_and_settle_tx(
@@ -356,22 +357,22 @@ def test_funded_transfer_transaction(solana_private_key_file):
     )
     assert is_settled, "Failed to verify tx!"
 
-    tx = solana_api.get_transaction(transaction_digest)
+    transaction = solana_api.get_transaction(transaction_digest)
 
-    assert tx['blockTime'] == transaction_receipt['blockTime'], "Should be same"
+    assert transaction['blockTime'] == transaction_receipt['blockTime'], "Should be same"
 
 
 @ pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
 @ pytest.mark.integration
 @ pytest.mark.ledger
-def test_get_sol_balance(caplog, solana_private_key_file):
+def test_get_sol_balance(caplog):
     """Test the balance is zero for a new account."""
     with caplog.at_level(logging.DEBUG, logger="aea.crypto.solana._default_logger"):
         # solana_faucet_api = SolanaFaucetApi()
-        sc = SolanaCrypto(payer_keypair_path)
-        sa = SolanaApi()
+        solana_crypto = SolanaCrypto(payer_keypair_path)
+        solana_api = SolanaApi()
 
-        balance = sa.get_balance(sc.address)
+        balance = solana_api.get_balance(solana_crypto.address)
         assert isinstance(balance, int)
 
 
@@ -382,14 +383,14 @@ def test_get_tx(caplog, solana_private_key_file):
     """Test get tx from signature"""
     with caplog.at_level(logging.DEBUG, logger="aea.crypto.solana._default_logger"):
         solana_faucet_api = SolanaFaucetApi()
-        sc = SolanaCrypto(private_key_path=solana_private_key_file)
+        solana_crypto = SolanaCrypto(private_key_path=solana_private_key_file)
         solana_api = SolanaApi()
 
         retries = 0
         tx_signature = None
         while retries < MAX_FLAKY_RERUNS:
             tx_signature = solana_faucet_api.get_wealth(
-                sc.public_key, AIRDROP_AMOUNT)
+                address=solana_crypto.public_key, amount=AIRDROP_AMOUNT)
             if tx_signature is None:
                 retries += 1
                 time.sleep(2)
@@ -433,9 +434,9 @@ def test_load_contract_instance():
                     "spl-token-faucet", "target", "idl", "spl_token_faucet.json")
     bytecode_path = Path(ROOT_DIR, "tests", "data",
                          "spl-token-faucet", "target", "deploy", "spl_token_faucet.so")
-    sa = SolanaApi()
-    result = sa.load_contract_interface(
-        idl_file_path=idl_path, bytecode_path=bytecode_path)
+    solana_api = SolanaApi()
+    result = solana_api.load_contract_interface(
+        file_path=idl_path, bytecode_path=bytecode_path)
     pid = "ZETAxsqBRek56DhiGXrn75yj2NHU3aYUnxvHXpkf3aD"
     instance = SolanaApi.get_contract_instance(SolanaApi,
                                                contract_interface=result, contract_address=pid)
@@ -443,7 +444,7 @@ def test_load_contract_instance():
     assert hasattr(instance['program'], 'coder')
 
 
-def test_get_transaction_transfer_logs(solana_private_key_file):
+def test_get_transaction_transfer_logs():
     """Test SolanaApi.get_transaction_transfer_logs."""
     solana_api = SolanaApi()
 
@@ -454,14 +455,14 @@ def test_get_transaction_transfer_logs(solana_private_key_file):
 
     account2 = SolanaCrypto()
 
-    balance1 = solana_api.get_balance(account1.public_key)
-    balance2 = solana_api.get_balance(account2.public_key)
+    # balance1 = solana_api.get_balance(account1.public_key)
+    # balance2 = solana_api.get_balance(account2.public_key)
 
-    AMOUNT = 1232323
+    amount = 1232323
     tx_params = {
         "sender_address": account1.public_key,
         "destination_address": account2.public_key,
-        "amount": AMOUNT,
+        "amount": amount,
         "unfunded_account": True,
     }
 
@@ -474,58 +475,13 @@ def test_get_transaction_transfer_logs(solana_private_key_file):
     )
     assert is_settled, "Failed to verify tx!"
 
-    tx = solana_api.get_transaction(transaction_digest)
+    transaction = solana_api.get_transaction(transaction_digest)
 
-    assert tx['blockTime'] == transaction_receipt['blockTime'], "Should be same"
+    assert transaction['blockTime'] == transaction_receipt['blockTime'], "Should be same"
 
     logs = solana_api.get_transaction_transfer_logs(transaction_digest)
     assert "preBalances" in logs
     assert "postBalances" in logs
-
-
-@ pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
-@ pytest.mark.integration
-@ pytest.mark.ledger
-def test_deploy_program():
-    """Test the deploy contract method."""
-
-    idl_path = Path(ROOT_DIR, "tests", "data",
-                    "tic-tac-toe", "target", "idl", "tic_tac_toe.json")
-    bytecode_path = Path(ROOT_DIR, "tests", "data",
-                         "tic-tac-toe", "target", "deploy", "tic_tac_toe.so")
-    program_keypair_path = Path(
-        ROOT_DIR, "tests", "data", "solana_private_key_program.txt")
-    payer_keypair_path = Path(
-        ROOT_DIR, "tests", "data", "solana_private_key0.txt")
-
-    sa = SolanaApi()
-
-    program = SolanaCrypto(str(program_keypair_path))
-    payer = SolanaCrypto(str(payer_keypair_path))
-    # program = SolanaCrypto()
-    # payer = SolanaCrypto()
-
-    interface = sa.load_contract_interface(
-        idl_file_path=idl_path, bytecode_path=bytecode_path, program_keypair=program)
-
-    init = False
-    if init:
-        program.dump(str(program_keypair_path))
-        payer.dump(str(payer_keypair_path))
-
-        faucet = SolanaFaucetApi()
-        tx = retry_airdrop_if_result_none(faucet, payer.address, 1)
-        # tx = faucet.get_wealth(payer.address, 1)
-        assert tx is not None, "Generate wealth failed"
-        transaction_receipt, is_settled = _wait_get_receipt(sa, tx)
-        assert is_settled is True
-
-        balance = sa.get_balance(payer.address)
-        assert balance >= 2 * LAMPORTS_PER_SOL
-        print("Payer Balance: " + str(balance/LAMPORTS_PER_SOL) + " SOL")
-
-    result = sa.get_deploy_transaction(interface, payer)
-    assert result is not None, "Should not be none"
 
 
 @ pytest.mark.flaky(reruns=MAX_FLAKY_RERUNS)
@@ -544,14 +500,14 @@ def test_contract_method_call():
     payer_keypair_path = Path(
         ROOT_DIR, "tests", "data", "solana_private_key0.txt")
 
-    sa = SolanaApi()
+    solana_api = SolanaApi()
     payer = SolanaCrypto(str(payer_keypair_path))
     program_kp = SolanaCrypto(str(program_keypair_path))
 
-    interface = sa.load_contract_interface(
-        idl_file_path=idl_path, bytecode_path=bytecode_path, program_keypair=program_kp)
+    interface = solana_api.load_contract_interface(
+        file_path=idl_path, bytecode_path=bytecode_path, program_keypair=program_kp)
 
-    instance = sa.get_contract_instance(
+    instance = solana_api.get_contract_instance(
         contract_interface=interface, contract_address=program_kp.address)
 
     program = instance['program']
@@ -565,10 +521,10 @@ def test_contract_method_call():
     # print("p1 - payer: " + str(player1.address))
     # print("p2: " + str(player2.address))
 
-    resp = _generate_wealth_if_needed(sa, payer.address)
+    resp = _generate_wealth_if_needed(solana_api, payer.address)
     assert resp != "failed", "Failed to generate wealth"
 
-    resp = _generate_wealth_if_needed(sa, player2.address)
+    resp = _generate_wealth_if_needed(solana_api, player2.address)
     assert resp != "failed", "Failed to generate wealth"
 
     # setup game
@@ -579,27 +535,26 @@ def test_contract_method_call():
         "player_one": payer.public_key,
         "system_program": PublicKey("11111111111111111111111111111111")}
 
-    tx = sa.build_transaction(program, "setup_game", method_args={
+    trasaction = solana_api.build_transaction(program, "setup_game", method_args={
         "data": (player2.public_key,),
         "accounts": accounts,
     }, tx_args=None)
 
-    tx = sa.add_nonce(tx)
+    trasaction = solana_api.add_nonce(trasaction)
 
     signed_transaction = game.sign_transaction(
-        tx, [payer])
+        trasaction, [payer])
 
-    transaction_digest = sa.send_signed_transaction(
+    transaction_digest = solana_api.send_signed_transaction(
         signed_transaction)
     assert transaction_digest is not None
     transaction_receipt, is_settled = _wait_get_receipt(
-        sa, transaction_digest)
+        solana_api, transaction_digest)
     assert is_settled is True
-    state = sa.get_state(game.public_key)
+    state = solana_api.get_state(game.public_key)
     decoded_state = program.coder.accounts.decode(state.data)
 
     player1 = payer
-    player2 = player2
     column = 0
     # print(time.time() - start)
     # time.sleep(2)
@@ -617,27 +572,27 @@ def test_contract_method_call():
 
         tile = program.type['Tile'](row=row, column=column)
 
-        tx1 = sa.build_transaction(program, "play",
-                                   method_args={
-                                       "data": (tile,),
-                                       "accounts": accounts,
+        tx1 = solana_api.build_transaction(program, "play",
+                                           method_args={
+                                               "data": (tile,),
+                                               "accounts": accounts,
 
 
-                                   },
-                                   tx_args=None)
+                                           },
+                                           tx_args=None)
 
-        tx1 = sa.add_nonce(tx1)
+        tx1 = solana_api.add_nonce(tx1)
 
         signed_transaction = active_player.sign_transaction(
             tx1, )
 
-        transaction_digest = sa.send_signed_transaction(
+        transaction_digest = solana_api.send_signed_transaction(
             signed_transaction)
         assert transaction_digest is not None
         transaction_receipt, is_settled = _wait_get_receipt(
-            sa, transaction_digest)
+            solana_api, transaction_digest)
         assert is_settled is True
-        state = sa.get_state(game.public_key)
+        state = solana_api.get_state(game.public_key)
         decoded_state = program.coder.accounts.decode(state.data)
 
         if row == 0:

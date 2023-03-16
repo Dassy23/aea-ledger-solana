@@ -21,46 +21,35 @@
 import json
 import logging
 import hashlib
-import base64
-import base58
-import struct
 from struct import pack_into
-import array
-import subprocess
-import tempfile
 from typing import NewType
-import os
-
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union, cast
 import zlib
 from ast import literal_eval
+import base64
 from aea.common import Address, JSONLike
 from aea.crypto.base import Crypto, FaucetApi, Helper, LedgerApi
 from aea.crypto.helpers import DecryptError, KeyIsIncorrect, hex_to_bytes_for_key
-from aea.exceptions import enforce
-from aea.helpers import http_requests as requests
+# from aea.exceptions import enforce
+# from aea.helpers import http_requests as requests
 from aea.helpers.base import try_decorator
 from aea.helpers.io import open_file
-
+import base58
 from solana.publickey import PublicKey
 from solana.rpc.api import Client
-from solana.rpc.types import MemcmpOpts
-from solana.blockhash import Blockhash, BlockhashCache
+from solana.rpc.types import MemcmpOpts, TxOpts
+from solana.blockhash import BlockhashCache
 from solana.keypair import Keypair
 from solders.signature import Signature
 from solders.transaction import Transaction as sTransaction
 from solders.hash import Hash
 from solders import system_program as ssp
-from pythclient.pythaccounts import PythPriceInfo
-
 
 from anchorpy import Idl
 from cryptography.fernet import Fernet
 
 
-from pathlib import Path
-import json
 from solana.transaction import Transaction
 from anchorpy import Program, Context
 from anchorpy.idl import _decode_idl_account, _idl_address
@@ -69,11 +58,11 @@ from solana.system_program import TransferParams, transfer
 from solana.transaction import Transaction, TransactionInstruction, AccountMeta
 from solana.system_program import create_account, SYS_PROGRAM_ID
 from solana.system_program import CreateAccountParams, CreateAccountWithSeedParams
-from spl.token.core import _TokenCore as TokenCore
+# from spl.token.core import _TokenCore as TokenCore
 
 _default_logger = logging.getLogger(__name__)
 
-_VERSION = "1.24.21"
+_VERSION = "1.24.23"
 _SOLANA = "solana"
 TESTNET_NAME = "n/a"
 DEFAULT_ADDRESS = "https://api.devnet.solana.com"
@@ -118,7 +107,7 @@ class SolanaCrypto(Crypto[Keypair]):
             password=password,
             extra_entropy=extra_entropy,
         )
-        bytes_representation = self.entity.secret_key
+        # bytes_representation = self.entity.secret_key
         self._public_key = self.entity.public_key
         self._address = self.entity.public_key
 
@@ -210,8 +199,8 @@ class SolanaCrypto(Crypto[Keypair]):
         :return: signed transaction
         """
 
-        jsonTx = json.dumps(transaction)
-        stxn = sTransaction.from_json(jsonTx)
+        json_tx = json.dumps(transaction)
+        stxn = sTransaction.from_json(json_tx)
         txn = Transaction.from_solders(stxn)
 
         # txn = transaction
@@ -221,14 +210,10 @@ class SolanaCrypto(Crypto[Keypair]):
             signer.private_key)) for signer in signers]
         signers.append(keypair)
 
-        try:
-            txn.sign(*signers)
-        except Exception as e:
-            raise Exception(e)
+        txn.sign(*signers)
 
-        tx = txn._solders.to_json()
-        return json.loads(tx)
-        # return txn
+        transaction = txn._solders.to_json()
+        return json.loads(transaction)
 
     @ classmethod
     def generate_private_key(
@@ -274,15 +259,15 @@ class SolanaCrypto(Crypto[Keypair]):
         try:
             keyfile = json.loads(keyfile_json)
             keyfile_bytes = keyfile.encode()
-            pw = str.encode(password)
-            hash_object = hashlib.sha256(pw)
+            password = str.encode(password)
+            hash_object = hashlib.sha256(password)
             hex_dig = hash_object.digest()
             base64_bytes = base64.b64encode(hex_dig)
             fernet = Fernet(base64_bytes)
 
             dec_mac = fernet.decrypt(keyfile_bytes).decode()
-        except ValueError as e:
-            raise DecryptError() from e
+        except ValueError as error:
+            raise DecryptError() from error
         return dec_mac
 
 
@@ -291,7 +276,7 @@ class SolanaHelper(Helper):
 
     @ classmethod
     def load_contract_interface(cls,
-                                idl_file_path: Optional[Path] = None,
+                                file_path: Optional[Path] = None,
                                 program_keypair: Optional[Crypto] = None,
                                 program_address: Optional[str] = None,
                                 rpc_api: Optional[str] = None,
@@ -333,11 +318,10 @@ class SolanaHelper(Helper):
                 json_idl = json.loads(inflated_idl)
                 return {"idl": json_idl, "bytecode": bytecode, "program_address": program_address, "program_keypair": program_keypair}
             except Exception as e:
-
                 raise Exception("Could not locate IDL")
 
-        elif idl_file_path is not None:
-            with open_file(idl_file_path, "r") as interface_file_solana:
+        elif file_path is not None:
+            with open_file(file_path, "r") as interface_file_solana:
                 json_idl = json.load(interface_file_solana)
 
             return {"idl": json_idl, "bytecode": bytecode, "program_address": program_address, "program_keypair": program_keypair}
@@ -415,29 +399,6 @@ class SolanaHelper(Helper):
 
         return NotImplementedError
 
-    def generate_tx_nonce(self) -> str:
-        """
-        Fetch a latest blockhash to distinguish transactions with the same terms.
-
-        :return: return the blockhash as a nonce.
-        """
-        try:
-            blockhash = self.BlockhashCache.get()
-            # return json.loads(((Hash.from_string(blockhash)).to_json()))
-            return blockhash
-        except Exception as e:
-            result = self._try_generate_tx_nonce()
-            blockhash_json = json.loads(result.value.to_json())
-            self.BlockhashCache.set(
-                blockhash=blockhash_json['blockhash'], slot=result.context.slot)
-            # return json.loads((Hash.from_string(blockhash['blockhash'])).to_json())
-            return blockhash_json['blockhash']
-
-    @ try_decorator("Unable to retrieve nonce/blockhash: {}", logger_method="warning")
-    def _try_generate_tx_nonce(self, **_kwargs: Any) -> dict:
-        """Get the balance of a given account."""
-        return self._api.get_latest_blockhash()
-
     def add_nonce(self, tx: dict) -> JSONLike:
         """
         Check whether a transaction is valid or not.
@@ -445,13 +406,13 @@ class SolanaHelper(Helper):
         :param tx: the transaction.
         :return: True if the random_message is equals to tx['input']
         """
-        jsonTx = json.dumps(tx)
-        stxn = sTransaction.from_json(jsonTx)
-        txObj = Transaction.from_solders(stxn)
+        json_tx = json.dumps(tx)
+        stxn = sTransaction.from_json(json_tx)
+        tx_obj = Transaction.from_solders(stxn)
         # blockash in string format
         nonce = self.generate_tx_nonce()
-        txObj.recent_blockhash = nonce
-        return json.loads(txObj._solders.to_json())
+        tx_obj.recent_blockhash = nonce
+        return json.loads(tx_obj._solders.to_json())
 
     def to_transaction_format(self, tx: dict) -> JSONLike:
         """
@@ -460,8 +421,8 @@ class SolanaHelper(Helper):
         :param tx: the transaction.
         :return: True if the random_message is equals to tx['input']
         """
-        jsonTx = json.dumps(tx)
-        stxn = sTransaction.from_json(jsonTx)
+        json_tx = json.dumps(tx)
+        stxn = sTransaction.from_json(json_tx)
         return Transaction.from_solders(stxn)
 
     def to_dict_format(self, tx) -> JSONLike:
@@ -552,14 +513,14 @@ class SolanaApi(LedgerApi, SolanaHelper):
         Commitment = NewType("Commitment", str)
         """Type for commitment."""
 
-        Finalized = Commitment("finalized")
-        Confirmed = Commitment("confirmed")
+        # Finalized = Commitment("finalized")
+        confirmed = Commitment("confirmed")
 
         self._api = Client(
-            endpoint=kwargs.pop("address", DEFAULT_ADDRESS), commitment=Confirmed
+            endpoint=kwargs.pop("address", DEFAULT_ADDRESS), commitment=confirmed
         )
 
-        self.BlockhashCache = BlockhashCache(ttl=10)
+        self.blockhash_cache = BlockhashCache(ttl=10)
 
         self._chain_id = kwargs.pop("chain_id", DEFAULT_CHAIN_ID)
         self._version = _VERSION
@@ -579,6 +540,30 @@ class SolanaApi(LedgerApi, SolanaHelper):
         """
 
         return NotImplementedError
+
+    def generate_tx_nonce(self) -> str:
+        """
+        Fetch a latest blockhash to distinguish transactions with the same terms.
+
+        :return: return the blockhash as a nonce.
+        """
+        try:
+
+            blockhash = self.blockhash_cache.get()
+            # return json.loads(((Hash.from_string(blockhash)).to_json()))
+            return blockhash
+        except ValueError:
+            result = self._try_generate_tx_nonce()
+            blockhash_json = json.loads(result.value.to_json())
+            self.blockhash_cache.set(
+                blockhash=blockhash_json['blockhash'], slot=result.context.slot)
+            # return json.loads((Hash.from_string(blockhash['blockhash'])).to_json())
+            return blockhash_json['blockhash']
+
+    @ try_decorator("Unable to retrieve nonce/blockhash: {}", logger_method="warning")
+    def _try_generate_tx_nonce(self, **_kwargs: Any) -> dict:
+        """Get the balance of a given account."""
+        return self._api.get_latest_blockhash()
 
     def get_balance(
         self, address: Address, raise_on_try: bool = False
@@ -620,7 +605,7 @@ class SolanaApi(LedgerApi, SolanaHelper):
         return account_info_val
 
     def get_program_accounts_state(
-        self, address: str, filters: dict = None, *args: Any, raise_on_try: bool = False, **kwargs: Any
+        self, address: str, filters: dict = None, raise_on_try: bool = False, *args: Any, **kwargs: Any
     ) -> Optional[JSONLike]:
         """Call a specified function on the ledger API."""
         response = self._try_get_program_accounts_state(
@@ -719,7 +704,7 @@ class SolanaApi(LedgerApi, SolanaHelper):
         return json.loads(tx)
 
     def send_signed_transaction(
-        self, tx_signed: JSONLike, raise_on_try: bool = False
+        self, tx_signed: JSONLike, raise_on_try: bool = False, skip_preflight: bool = True
     ) -> Optional[str]:
         """
         Send a signed transaction and wait for confirmation.
@@ -729,8 +714,7 @@ class SolanaApi(LedgerApi, SolanaHelper):
         :return: tx_digest, if present
         """
         tx_digest = self._try_send_signed_transaction(
-            tx_signed, raise_on_try=True
-        )
+            tx_signed, raise_on_try=True, skip_preflight=skip_preflight)
         try:
             tx = json.loads(tx_digest)
         except Exception as e:
@@ -739,7 +723,7 @@ class SolanaApi(LedgerApi, SolanaHelper):
 
     @ try_decorator("Unable to send transaction: {}", logger_method="warning")
     def _try_send_signed_transaction(
-        self, tx_signed: JSONLike, **_kwargs: Any
+        self, tx_signed: JSONLike, skip_preflight, **_kwargs: Any
     ) -> Optional[str]:
         """
         Try send a signed transaction.
@@ -750,16 +734,16 @@ class SolanaApi(LedgerApi, SolanaHelper):
         :return: tx_digest, if present
         """
 
-        # txOpts = types.TxOpts(skip_preflight=True)
+        tx_opts = TxOpts(skip_preflight=skip_preflight)
 
-        jsonTx = json.dumps(tx_signed)
-        stxn = sTransaction.from_json(jsonTx)
+        json_tx = json.dumps(tx_signed)
+        stxn = sTransaction.from_json(json_tx)
         txn = Transaction.from_solders(stxn)
 
         # txn = tx_signed
 
         txn_resp = self._api.send_raw_transaction(
-            txn.serialize())
+            txn.serialize(), tx_opts)
 
         return txn_resp.to_json()
 
@@ -798,8 +782,8 @@ class SolanaApi(LedgerApi, SolanaHelper):
         tx_receipt = self._api.get_transaction(
             Signature.from_string(tx_digest))  # pylint: disable=no-member
 
-        tx = json.loads(tx_receipt.to_json())
-        return tx["result"]
+        transaction = json.loads(tx_receipt.to_json())
+        return transaction["result"]
 
     def get_transaction(
         self,
@@ -828,10 +812,11 @@ class SolanaApi(LedgerApi, SolanaHelper):
             `raise_on_try`: bool flag specifying whether the method will raise or log on error (used by `try_decorator`)
         :return: the tx, if found
         """
-        tx = self._api.get_transaction(Signature.from_string(tx_digest))
+        transaction = self._api.get_transaction(
+            Signature.from_string(tx_digest))
 
         # pylint: disable=no-member
-        return json.loads(tx.value.to_json())
+        return json.loads(transaction.value.to_json())
 
     def create_default_account(self, from_address: str, new_account_address: str, lamports: int, space: int, program_id: Optional[str] = SYS_PROGRAM_ID):
         """
@@ -851,11 +836,11 @@ class SolanaApi(LedgerApi, SolanaHelper):
             space,
             PublicKey(program_id)
         )
-        createAccountInstruction = create_account(params)
+        create_account_instruction = create_account(params)
         txn = Transaction(fee_payer=from_address).add(
-            createAccountInstruction)
-        tx = txn._solders.to_json()
-        return json.loads(tx)
+            create_account_instruction)
+        transaction = txn._solders.to_json()
+        return json.loads(transaction)
 
     def create_pda(self,
                    from_address: str,
@@ -884,12 +869,12 @@ class SolanaApi(LedgerApi, SolanaHelper):
             space,
             PublicKey(program_id)
         )
-        createPDAInstruction = TransactionInstruction.from_solders(
+        create_pda_instruction = TransactionInstruction.from_solders(
             ssp.create_account_with_seed(params.to_solders()))
         txn = Transaction().add(
-            createPDAInstruction)
-        tx = txn._solders.to_json()
-        return json.loads(tx)
+            create_pda_instruction)
+        transaction = txn._solders.to_json()
+        return json.loads(transaction)
 
     def get_contract_instance(
         self, contract_interface: Dict[str, str], contract_address: str, bytecode_path: Optional[Path] = None
@@ -920,7 +905,7 @@ class SolanaApi(LedgerApi, SolanaHelper):
     def get_deploy_transaction(  # pylint: disable=arguments-differ
         self,
         contract_interface: Dict[Any, Any],
-        payer_keypair: Address,
+        deployer_address: Address,
         raise_on_try: bool = False,
         **kwargs: Any,
     ) -> Optional[JSONLike]:
@@ -935,45 +920,6 @@ class SolanaApi(LedgerApi, SolanaHelper):
         :return: the transaction dictionary.
         """
         return NotImplementedError
-        # if contract_interface["bytecode"] is None or contract_interface["program_keypair"] is None:
-        #     raise ValueError("Bytecode or program_keypair is required")
-
-        # # check if solana cli is installed
-        # result = subprocess.run(
-        #     ["solana --version"], capture_output=True, text=True, shell=True)
-        # if result.stderr != "":
-        #     raise ValueError(result.stderr)
-
-        # # save keys in uint8 array temp
-        # value = struct.unpack('64B', payer_keypair.entity.secret_key)
-        # uint8_array = array.array('B', value)
-        # payer_uint8 = uint8_array.tolist()
-        # temp_dir_payer = Path(tempfile.mkdtemp())
-        # temp_file_payer = temp_dir_payer / "payer.json"
-        # temp_file_payer.write_text(str(payer_uint8))
-
-        # value = struct.unpack(
-        #     '64B', contract_interface["program_keypair"].entity.secret_key)
-        # uint8_array = array.array('B', value)
-        # program_uint8 = uint8_array.tolist()
-        # temp_dir_program = Path(tempfile.mkdtemp())
-        # temp_file_program = temp_dir_program / "program.json"
-        # temp_file_program.write_text(str(program_uint8))
-
-        # t = SolanaCrypto(temp_file_payer)
-        # temp_dir_bytecode = Path(tempfile.mkdtemp())
-        # temp_file_bytecode = temp_dir_bytecode / "bytecode.so"
-        # temp_file_bytecode.write_bytes(contract_interface["bytecode"])
-
-        # cmd = f'''solana program deploy --url {DEFAULT_ADDRESS} -v --keypair {str(temp_file_payer)} --program-id {str(temp_file_program)} {str(temp_file_bytecode)}'''
-
-        # result = subprocess.run(
-        #     [cmd], capture_output=True, text=True, shell=True)
-
-        # if result.stderr != "":
-        #     raise ValueError(result.stderr)
-
-        # return result.stdout
 
     @ classmethod
     def contract_method_call(
@@ -1024,8 +970,8 @@ class SolanaApi(LedgerApi, SolanaHelper):
         txn = contract_instance.transaction[method_name](*data, ctx=Context(
             accounts=accounts,
             remaining_accounts=remaining_accounts))
-        tx = txn._solders.to_json()
-        return json.loads(tx)
+        transaction = txn._solders.to_json()
+        return json.loads(transaction)
 
     def get_transaction_transfer_logs(  # pylint: disable=too-many-arguments,too-many-locals
         self,
@@ -1080,7 +1026,7 @@ class SolanaFaucetApi(FaucetApi):
     identifier = _SOLANA
     testnet_name = TESTNET_NAME
 
-    def get_wealth(self, address: Address, amount: Optional[int] = None, url: Optional[str] = None) -> None:
+    def get_wealth(self, address: Address, url: Optional[str] = None, amount: Optional[int] = None) -> None:
         """
         Get wealth from the faucet for the provided address.
 
@@ -1120,7 +1066,7 @@ class SolanaFaucetApi(FaucetApi):
             _default_logger.error(
                 "Response: {}".format(response.message))
             raise Exception(response.get('message'))
-        if response['result'] == None:
+        if response['result'] is None:
             _default_logger.error("Response: {}".format("airdrop failed"))
         elif "error" in response:  # pragma: no cover
             _default_logger.error("Response: {}".format("airdrop failed"))
