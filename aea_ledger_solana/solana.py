@@ -25,6 +25,8 @@ from struct import pack_into
 from typing import NewType
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union, cast
+from construct import Int32un, Int64un, GreedyRange, If, Byte, Struct, Array, Computed, Prefixed, Sequence, VarInt, Int32ul, Int, Int64ul, Int8ul
+
 import zlib
 from ast import literal_eval
 import base64
@@ -44,6 +46,7 @@ from solana.keypair import Keypair
 from solders.signature import Signature
 from solders.transaction import Transaction as sTransaction
 from solders.hash import Hash
+from solders.pubkey import Pubkey
 from solders import system_program as ssp
 
 from anchorpy import Idl
@@ -62,7 +65,6 @@ from solana.system_program import CreateAccountParams, CreateAccountWithSeedPara
 
 _default_logger = logging.getLogger(__name__)
 
-_VERSION = "1.24.23"
 _SOLANA = "solana"
 TESTNET_NAME = "n/a"
 DEFAULT_ADDRESS = "https://api.devnet.solana.com"
@@ -236,13 +238,13 @@ class SolanaCrypto(Crypto[Keypair]):
         :return: json string containing encrypted private key.
         """
         try:
-            pw = str.encode(password)
-            hash_object = hashlib.sha256(pw)
+            password_encoded = str.encode(password)
+            hash_object = hashlib.sha256(password_encoded)
             hex_dig = hash_object.digest()
             base64_bytes = base64.b64encode(hex_dig)
             fernet = Fernet(base64_bytes)
             enc_mac = fernet.encrypt(self.private_key.encode())
-        except Exception as e:
+        except Exception:
             raise Exception("Encryption failed")
 
         return json.dumps(enc_mac.decode())
@@ -317,7 +319,7 @@ class SolanaHelper(Helper):
                     bytes(idl_account["data"])).decode()
                 json_idl = json.loads(inflated_idl)
                 return {"idl": json_idl, "bytecode": bytecode, "program_address": program_address, "program_keypair": program_keypair}
-            except Exception as e:
+            except Exception:
                 raise Exception("Could not locate IDL")
 
         elif file_path is not None:
@@ -340,6 +342,35 @@ class SolanaHelper(Helper):
         """
 
         return NotImplementedError
+
+    @ staticmethod
+    def decode_lookup_table(data):
+        LookupTableMetaLayout = Struct(
+            "typeIndex" / Int32ul,
+            "deactivationSlot" / Int64ul,
+            "lastExtendedSlot" / Int64ul,
+            "lastExtendedStartIndex" / Int8ul,
+            "option" / Int8ul,
+        )
+        val = LookupTableMetaLayout.parse(data[:24])
+
+        authorities = data[24:]
+        count = (len(data) - 24)/32
+        offset = 0
+        accounts = []
+        for i, v in enumerate(range(0, int(count))):
+            first = authorities[offset:offset+32]
+            accounts.append({i: str(Pubkey(bytes(first)))})
+            offset += 32
+
+        table = {
+            "typeIndex": val['typeIndex'],
+            "deactivationSlot": val['deactivationSlot'],
+            "lastExtendedSlot": val['lastExtendedSlot'],
+            "lastExtendedStartIndex": val['lastExtendedStartIndex'],
+            "lookupTable": accounts
+        }
+        return table
 
     @ staticmethod
     def is_transaction_settled(tx_receipt: JSONLike) -> bool:
@@ -435,7 +466,7 @@ class SolanaHelper(Helper):
 
         return json.loads(tx._solders.to_json())
 
-    def add_increase_compute_ix(self, tx, compute: int) -> JSONLike:
+    def add_increase_compute_ix(self, tx, compute: int, additional_fee: int) -> JSONLike:
         """
         Check whether a transaction is valid or not.
 
@@ -447,7 +478,7 @@ class SolanaHelper(Helper):
         name_bytes = bytearray(1 + 4 + 4)
         pack_into("B", name_bytes, 0, 0)
         pack_into("I", name_bytes, 1, compute)
-        pack_into("I", name_bytes, 5, 0)
+        pack_into("I", name_bytes, 5, additional_fee)
         data = bytes(name_bytes)
 
         compute_ix = TransactionInstruction([], program_id, data)
@@ -523,7 +554,6 @@ class SolanaApi(LedgerApi, SolanaHelper):
         self.blockhash_cache = BlockhashCache(ttl=10)
 
         self._chain_id = kwargs.pop("chain_id", DEFAULT_CHAIN_ID)
-        self._version = _VERSION
 
     @ property
     def api(self) -> Client:
@@ -563,7 +593,7 @@ class SolanaApi(LedgerApi, SolanaHelper):
     @ try_decorator("Unable to retrieve nonce/blockhash: {}", logger_method="warning")
     def _try_generate_tx_nonce(self, **_kwargs: Any) -> dict:
         """Get the balance of a given account."""
-        return self._api.get_latest_blockhash()
+        return self._api.get_latest_blockhash('finalized')
 
     def get_balance(
         self, address: Address, raise_on_try: bool = False
@@ -699,9 +729,9 @@ class SolanaApi(LedgerApi, SolanaHelper):
             txn = Transaction(fee_payer=sender_address).add(transfer(TransferParams(
                 from_pubkey=PublicKey(sender_address), to_pubkey=PublicKey(destination_address), lamports=amount)))
 
-        tx = txn._solders.to_json()
+        transaction = txn._solders.to_json()
 
-        return json.loads(tx)
+        return json.loads(transaction)
 
     def send_signed_transaction(
         self, tx_signed: JSONLike, raise_on_try: bool = False, skip_preflight: bool = True
@@ -966,14 +996,21 @@ class SolanaApi(LedgerApi, SolanaHelper):
         data = method_args['data']
         accounts = method_args['accounts']
         remaining_accounts = method_args['remaining_accounts']
+        if tx_args is None:
+            txn = contract_instance.transaction[method_name](*data, ctx=Context(
+                accounts=accounts,
+                remaining_accounts=remaining_accounts))
+            transaction = txn._solders.to_json()
+            return json.loads(transaction)
+        elif tx_args['type'] == "instruction":
+            instruction = contract_instance.instruction[method_name](*data, ctx=Context(
+                accounts=accounts,
+                remaining_accounts=remaining_accounts))
+            return instruction
+        else:
+            return NotImplementedError("Type not supported")
 
-        txn = contract_instance.transaction[method_name](*data, ctx=Context(
-            accounts=accounts,
-            remaining_accounts=remaining_accounts))
-        transaction = txn._solders.to_json()
-        return json.loads(transaction)
-
-    def get_transaction_transfer_logs(  # pylint: disable=too-many-arguments,too-many-locals
+    def get_transaction_transfer_logs(  # pylint: disable=too-many-arguments,too-many-locals,arguements-differ
         self,
         tx_hash: str,
         target_address: Optional[str] = None,
